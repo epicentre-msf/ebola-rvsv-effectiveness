@@ -1,0 +1,476 @@
+---
+title: "Prior distributions"
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = TRUE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r, include = FALSE}
+library(magrittr)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+```
+
+# Summary
+
+VE = 100*(1 - exp(b_V)), where b_V is the coefficient on vaccination status in the logistic regression. So -b_V = -ln(1 - VE/100).
+
+**Uninformative VE prior**
+
+Bounded:
+
+-   VE ~ Uniform(0,1) = Beta(1, 1)
+-   -b_V ~ Exp(1)
+
+Unbounded:
+
+-   b_V ~ N(-1, 0.5)
+
+**Informative VE prior**
+
+[Efficacy and effectiveness of an rVSV-vectored vaccine in preventing Ebola virus disease: final results from the Guinea ring vaccination, open-label, cluster-randomised trial (Ebola Ça Suffit!)](doi.org/10.1016/S0140-6736(16)32621-6)
+
+-   Published estimate: 99%, 95% CI [68.9, 100.0] (point estimate modified from 100%)
+-   VE ~ Beta(5.02, 0.26)
+-   -b_V ~ Gamma(2.4, 0.42)
+
+
+# Prior distributions {.tabset}
+
+## Uninformative
+
+### Bounded
+
+If X ~ Beta(1, 1), then -Y = -ln(1 - X) ~ Exp(1) 
+
+```{r}
+ve_uninf <- rbeta(
+  n = 1e5,
+  shape1 = 1,
+  shape2 = 1
+  )
+
+b_uninf <- rexp(
+  n = 1e5,
+  rate = 1
+  )
+
+tibble(
+  ve = 100*ve_uninf,
+  ve_exp = 100*(1 - exp(-b_uninf))
+  ) %>%
+  ggplot(aes(x = ve, y = after_stat(density))) +
+  geom_histogram(binwidth = 1) +
+  geom_density(
+    bounds = c(0, 100),
+    lwd = 1, col = "grey10"
+      ) +
+  geom_density(
+    aes(x = ve_exp),
+    bounds = c(0, 100),
+    lwd = 1, col = "skyblue"
+      ) +
+  labs(x = "VE (%)") +
+  theme_bw()
+```
+
+### Unbounded (1)
+
+We choose a Normal prior for b_V such that the following statements hold for the corresponding prior for VE:
+
+-   P(VE < 0) < 0.1 (less than 10% of distribution for negative VE)
+-   0.025 < P(VE > 90) < 0.1 (2.5 - 10% of distribution for VE greater than 90%)
+
+```{r}
+param_grid <- tidyr::expand_grid(
+  mu = seq(0, -2, -0.1),
+  sigma = seq(0.1, 2, 0.1)
+  ) %>%
+  rowwise() %>%
+  # Mass VE < 0 (equivalent to bV > 0, easier to calculate!)
+  mutate(
+    m_neg = pnorm(0, mean = mu, sd = sigma, lower.tail = FALSE)
+    ) %>%
+  # Mass VE > 90
+  mutate(
+    m_90 = sum((1 - exp(rnorm(1e6, mean = mu, sd = sigma))) > 0.9)/1e6
+    )
+
+param_choose <- param_grid %>%
+  filter(
+    m_neg < 0.1,
+    m_90 > 0.025,
+    m_90 < 0.1
+  )
+
+param_samples <- purrr::map_df(
+  .x = 1:nrow(param_choose),
+  .f = ~ {
+    
+    out <- tibble(
+      mean = param_choose$mu[.x],
+      sigma = param_choose$sigma[.x],
+      bv = rnorm(1e5, mean = param_choose$mu[.x], sd = param_choose$sigma[.x]),
+      ve = 100*(1 - exp(bv))
+    ) %>%
+      mutate(
+        pair = paste0("(", mean, ", ", sigma, ")")
+      )
+    
+    return(out)
+    
+  }
+)
+
+param_samples %>%
+  mutate(sigma_chr = as.character(sigma)) %>%
+  ggplot(aes(x = ve, group = pair, col = sigma_chr)) +
+  geom_density(bounds = c(-20, 100)) +
+  facet_wrap(~ mean) +
+  scale_color_brewer(palette = "Set2") +
+  theme_bw()
+```
+
+We choose a N(-1, 0.7) prior.
+
+### Unbounded (2)
+
+We choose a Normal prior for b_V such that the following statements hold for the corresponding prior for VE:
+
+-   0.01 < P(VE < 0) < 0.025 (1 - 2.5% of distribution for negative VE)
+-   P(VE > 90) > 0.1 (at least 10% of distribution for VE greater than 90%)
+
+```{r}
+param_choose <- param_grid %>%
+  filter(
+    m_neg > 0.01,
+    m_neg < 0.025,
+    m_90 > 0.1
+  )
+
+param_samples <- purrr::map_df(
+  .x = 1:nrow(param_choose),
+  .f = ~ {
+    
+    out <- tibble(
+      mean = param_choose$mu[.x],
+      sigma = param_choose$sigma[.x],
+      bv = rnorm(1e5, mean = param_choose$mu[.x], sd = param_choose$sigma[.x]),
+      ve = 100*(1 - exp(bv))
+    ) %>%
+      mutate(
+        pair = paste0("(", mean, ", ", sigma, ")")
+      )
+    
+    return(out)
+    
+  }
+)
+
+param_samples %>%
+  mutate(sigma_chr = as.character(sigma)) %>%
+  ggplot(aes(x = ve, group = pair, col = sigma_chr)) +
+  geom_density(bounds = c(-20, 100)) +
+  facet_wrap(~ mean) +
+  scale_color_brewer(palette = "Set2") +
+  theme_bw()
+```
+
+We choose a N(-2, 1) prior.
+
+### Comparison
+
+```{r}
+# N(0, 1), N(-1, 0.7) and N(-2, 1) priors, and resulting VE priors
+tb_unbd <- tibble(
+  bv_0_1 = rnorm(1e5, 0, 1),
+  bv_m1_07 = rnorm(1e5, -1, 0.7),
+  bv_m2_1 = rnorm(1e5, -2, 1)
+  ) %>%
+  mutate(
+    ve_u01 = 100*runif(1e5, 0, 1),
+    ve_0_1 = 100*(1 - exp(bv_0_1)),
+    ve_m1_07 = 100*(1 - exp(bv_m1_07)),
+    ve_m2_1 = 100*(1 - exp(bv_m2_1))
+    )
+
+tb_unbd %>%
+  select(contains("ve")) %>%
+  pivot_longer(cols = everything()) %>%
+  group_by(name) %>%
+  summarise(
+    q50 = quantile(value, 0.5),
+    q025 = quantile(value, 0.025),
+    q975 = quantile(value, 0.975)
+  )
+```
+
+```{r}
+tb_unbd %>%
+  ggplot() +
+  # geom_density(aes(x = ve_u01), bounds = c(0, 100), lwd = 1, col = "lightgrey") +
+  geom_density(aes(x = ve_m1_07), bounds = c(-10, 100), lwd = 1, col = "tomato") +
+  geom_density(aes(x = ve_0_1), bounds = c(-10, 100), lwd = 1, col = "skyblue") +
+  geom_density(aes(x = ve_m2_1), bounds = c(-10, 100), lwd = 1, col = "forestgreen") +
+  scale_x_continuous(limits = c(-10, 100), breaks = seq(-20, 100, 20)) +
+  labs(x = "VE (%)") +
+  theme_bw()
+```
+
+
+## Informative
+
+[Efficacy and effectiveness of an rVSV-vectored vaccine in preventing Ebola virus disease: final results from the Guinea ring vaccination, open-label, cluster-randomised trial (Ebola Ça Suffit!)](doi.org/10.1016/S0140-6736(16)32621-6)
+
+-   Published estimate: 100%, 95% CI [68.9, 100.0]
+
+```{r}
+est_pt <- 99      # using point estimate of 99% instead of 100%
+est_lwr <- 68.9
+est_upr <- 100
+```
+
+First, fit Beta distribution to the given quantiles of the published VE estimate.
+
+```{r, }
+ve_beta <- rriskDistributions::get.beta.par(
+  p = c(0.025, 0.5, 0.975),
+  q = c(est_lwr, est_pt, est_upr)/100,
+  show.output = FALSE,
+  plot = FALSE
+)
+```
+
+Fitted quantiles and distribution of corresponding Beta prior:
+
+```{r}
+ve_inf <- rbeta(
+  n = 1e5,
+  shape1 = ve_beta[1],
+  shape2 = ve_beta[2]
+  )
+
+# Print fitted quantiles
+round(100*quantile(ve_inf, c(0.025, 0.5, 0.975)), 1)
+
+# VE prior (fitted Beta)
+tibble(
+  ve = 100*ve_inf
+  ) %>%
+  ggplot(aes(x = ve, y = after_stat(density))) +
+  geom_histogram(binwidth = 1) +
+  geom_density(
+    bounds = c(0, 100),
+    lwd = 1, col = "grey10"
+      ) +
+  labs(x = "VE (%)") +
+  theme_bw()
+```
+
+Next, fit distributions to the corresponding -b_V = -ln(1 - VE/100) distribution, after removing any infinite values:
+
+```{r}
+b_inf <- log(1 - ve_inf)
+b_inf <- b_inf[which(b_inf > -Inf)]
+```
+
+**Exponential distribution** (not good):
+
+```{r}
+# Fit distribution
+inf_exp <- MASS::fitdistr(-b_inf, "exponential")
+# Resulting VE quantiles (should be close to published estimates)
+#   - not good
+quantile((1 - exp(-rexp(n = 1e5, rate = inf_exp$estimate[1]))),
+         c(0.025, 0.5, 0.975))
+```
+
+**Gamma distribution** (good!):
+
+```{r}
+# Fit distribution
+inf_gamma <- MASS::fitdistr(-b_inf, "gamma")
+# Resulting VE quantiles (should be close to published estimates)
+#   - ok!
+quantile((1 - exp(-rgamma(n = 1e5,
+                          shape = inf_gamma$estimate[1],
+                          rate = inf_gamma$estimate[2]))),
+         c(0.025, 0.5, 0.975))
+
+# Compare fitted Beta prior (VE) and fitted Gamma prior (b_V) on VE scale
+tibble(
+  ve = ve_inf,
+  ve_fit = (1 - exp(-rgamma(n = 1e5,
+                            shape = inf_gamma$estimate[1],
+                            rate = inf_gamma$estimate[2])))
+  ) %>%
+  ggplot(aes(y = after_stat(density))) +
+  geom_density(aes(x = ve), lwd = 1, col = "grey10") +
+  geom_density(aes(x = ve_fit), lwd = 1, col = "skyblue") +
+  scale_x_continuous(limits = c(-10, 100), breaks = seq(-20, 100, 20)) +
+  labs(x = "VE (%)") +
+  theme_bw()
+```
+
+# Prior predictive checks
+
+```{r}
+# Data
+dat_a1 <- readRDS(
+  file = here("outputs", "matched_data", paste0("imp_m", m_imputations, "_matched_n", nm_matchsample, "_10d_a1.rds"))
+)
+dat_a1_1 <- dat_a1$sample_list$`1` %>%
+  mutate(
+    x_sex = factor(x_sex, c("Female", "Male")),
+    x_age_gp = factor(x_age_gp, c("y15_29", "y0_4", "y5_14", "y30_59", "y60_"))
+  ) %>%
+  mutate(
+    x_strata = forcats::fct_relevel(x_strata, "Beni_201907")
+  )
+  
+# Model (v1)
+fit1 <- brms::brm(
+  data = dat_a1_1,
+  family = brms::bernoulli(),
+  formula = "x_evd_status ~ x_sex + x_age_gp + x_strata + x_vacc_status",
+  prior = c(
+          brms::prior(normal(0, 1), class = "Intercept"),
+          brms::prior(normal(0, 1), class = b),
+          brms::prior(normal(-1, 0.7), class = b, coef = "x_vacc_statusvaccinated_10d")
+        ),
+  sample_prior = "yes",
+  iter = 4000
+)
+# Model (v2)
+fit2 <- brms::brm(
+  data = dat_a1$sample_list$`1`,
+  family = brms::bernoulli(),
+  # formula = "x_evd_status ~ x_sex + x_age_gp + x_strata + x_vacc_status",
+  formula = brms::bf(
+    x_evd_status ~ a + sex + age + strata + vstatus,
+    a ~ 1,
+    sex ~ 0 + x_sex,
+    age ~ 0 + x_age_gp,
+    strata ~ 0 + x_strata,
+    vstatus ~ x_vacc_status,
+    nl = TRUE
+  ),
+  prior = c(
+    brms::prior(normal(0, 1), nlpar = a),
+    brms::prior(normal(0, 1), nlpar = sex),
+    brms::prior(normal(0, 1), nlpar = age),
+    brms::prior(normal(0, 1), nlpar = strata),
+    brms::prior(normal(-1, 0.7), nlpar = vstatus, coef = x_vacc_statusvaccinated_10d)
+  ),
+  sample_prior = "yes",
+  iter = 2000
+)
+```
+
+## Vaccine effectiveness
+```{r}
+# Mean, median and 95% CrI
+brms::prior_draws(fit1) %>%
+  mutate(ve = 100*(1 - exp(b_x_vacc_statusvaccinated_10d))) %>%
+  summarise(
+    mean = mean(ve),
+    q50 = median(ve),
+    q025 = quantile(ve, 0.025),
+    q975 = quantile(ve, 0.975)
+  ) %>%
+  mutate(across(.cols = where(is.numeric), .fns = ~ round(.x, 2)))
+```
+
+```{r}
+g_prior_ve <- brms::prior_draws(fit1) %>%
+  mutate(ve = 100*(1 - exp(b_x_vacc_statusvaccinated_10d))) %>%
+  ggplot(aes(x = ve, y = after_stat(density))) +
+  geom_histogram(binwidth = 1, fill = "tomato", alpha = 0.4) +
+  geom_density(bounds = c(-10, 100), col = "tomato3", lwd = 0.8) +
+  scale_x_continuous(limits = c(-11, 101), breaks = seq(0, 100, 20)) +
+  labs(
+    title = "A",
+    x = "Prior vaccine effectiveness (%)"
+  ) +
+  theme_bw()
+```
+
+## Probability of being a case, reference group
+```{r}
+tb_p1 <- brms::prior_draws(fit1) %>%
+  mutate(
+    Unvaccinated = brms::inv_logit_scaled(Intercept),
+    Vaccinated = brms::inv_logit_scaled(Intercept + b_x_vacc_statusvaccinated_10d),
+  ) %>%
+  select(Unvaccinated, Vaccinated) %>%
+  pivot_longer(cols = everything()) %>%
+  mutate(name = factor(name, c("Unvaccinated", "Vaccinated")))
+# Mean, median and 95% CrI (probability of positive test)
+tb_p1 %>%
+  group_by(name) %>%
+  summarise(
+    mean = mean(value),
+    q50 = median(value),
+    q025 = quantile(value, 0.025),
+    q975 = quantile(value, 0.975)
+  ) %>%
+  mutate(across(.cols = where(is.numeric), .fns = ~ round(.x, 2)))
+```
+
+```{r}
+g_prior_p <- tb_p1 %>%
+  mutate(name = factor(name, c("Vaccinated", "Unvaccinated"))) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density), group = name), position = position_identity(), binwidth = 0.01, alpha = 0.4) +
+  geom_line(aes(col = name), stat = "density", lwd = 0.8) +
+  # annotate(
+  #   "text",
+  #   x = 0.25, hjust = 0, y = 2, label = "Vaccinated",
+  #   col = "tomato", size = 3, fontface = 2
+  # ) +
+  # annotate(
+  #   "text",
+  #   x = 0.8, hjust = 0, y = 1.25, label = "Unvaccinated",
+  #   col = "grey60", size = 3, fontface = 2
+  # ) +
+  scale_x_continuous(breaks = seq(0, 1, 0.2)) +
+  scale_color_manual(
+    values = c(Unvaccinated = "grey60", Vaccinated = "grey20")
+  ) +
+  labs(
+    title = "B",
+    x = "Prior probability of positive test result",
+    col = "Status", fill = "Status",
+    caption = ""
+  ) +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
+```{r}
+(g_prior_ve | g_prior_p) +
+  plot_layout(widths = c(2, 1))
+```
+
+
+

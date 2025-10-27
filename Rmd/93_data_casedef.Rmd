@@ -1,0 +1,99 @@
+---
+title: 'Suspected case definition'
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = FALSE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r}
+library(here)
+library(magrittr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+```{r}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+
+source(here("R/load_data.R"))
+source(here("R/wrangle_etc.R"))
+
+conflicted::conflicts_prefer(
+  dplyr::select(),
+  dplyr::filter()
+)
+```
+
+# Load data
+
+```{r, echo = TRUE}
+etc_clean <- etc_1step()
+```
+
+
+# Suspected case definition
+
+```{r}
+etc_clean$etc_format %>%
+  select(evd_status, patient_id_unique, contact_evd_case, any_adm2, fever, bleeding_any, n_symptoms, dead_upon_arrival) %>%
+  mutate(
+    suspected = case_when(
+      fever & contact_evd_case == "Yes" ~ TRUE,
+      fever & n_symptoms > 0 & (any_adm2 == "Yes") ~ TRUE,
+      fever & n_symptoms >= 3 ~ TRUE,
+      contact_evd_case == "Yes" & n_symptoms >= 3 ~ TRUE,
+      bleeding_any ~ TRUE,
+      dead_upon_arrival == "Yes" ~ TRUE,
+      TRUE ~ FALSE
+    ),
+    suspected_reason = case_when(
+      fever & contact_evd_case == "Yes" ~ "Fever + contact",
+      fever & n_symptoms >= 3 ~ "Fever + 3",
+      contact_evd_case == "Yes" & n_symptoms >= 3 ~ "Contact + 3",
+      fever & n_symptoms > 0 & (any_adm2 == "Yes") ~ "Symptoms + active ZS",
+      bleeding_any ~ "Bleeding",
+      #
+      !bleeding_any & fever & contact_evd_case == "No" ~ "Fever AND {no contact OR no cases OR < 3 symptoms}",
+      !bleeding_any & fever & (any_adm2 == "No" & n_symptoms == 0) ~ "Fever AND {no contact OR no cases OR < 3 symptoms}",
+      !bleeding_any & fever & n_symptoms < 3 ~ "Fever AND {no contact OR no cases OR < 3 symptoms}",
+      !bleeding_any & !fever & contact_evd_case == "Yes" ~ "No fever",
+      !bleeding_any & !fever & n_symptoms > 0 & any_adm2 == "Yes" ~ "No fever",
+      !bleeding_any & !fever & n_symptoms >= 3 ~ "No fever",
+      !bleeding_any & is.na(fever) & contact_evd_case == "Yes" ~ "Missing fever",
+      !bleeding_any & is.na(fever) & n_symptoms > 0 & any_adm2 == "Yes" ~ "Missing fever",
+      !bleeding_any & is.na(fever) & n_symptoms >= 3 ~ "Missing fever",
+      !bleeding_any & !fever & contact_evd_case == "Yes" & n_symptoms < 3 ~ "Contact + < 3 symptoms",
+      !fever & contact_evd_case == "No" & !bleeding_any & n_symptoms == 0 ~ "No reported risks, no symptoms",
+      !fever & contact_evd_case == "No" & !bleeding_any & n_symptoms < 3 ~ "No reported risks, < 3 symptoms"
+    )
+  ) %>%
+  select(suspected, everything()) %>%
+  filter(evd_status == "EVD-pos", !suspected) %>% View()
+  count(evd_status, suspected) %>%
+  group_by(evd_status) %>%
+  mutate(
+    n_tot = sum(n),
+    p = round(100*n/sum(n), 2)
+  ) %>%
+  arrange(evd_status, -suspected, -p)
+```
+

@@ -1,0 +1,655 @@
+---
+title: 'Data quality: vaccination status'
+author: "Sophie Meakin, NDIAYE Aminata, Anton Camacho, Flavio Finger"
+output: html_document
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = FALSE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r}
+library(here)
+library(magrittr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(flextable)
+```
+
+```{r}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+
+source(here("R/load_data.R"))
+source(here("R/wrangle_etc.R"))
+```
+
+# Load data
+
+```{r, echo = TRUE}
+# ETC
+etc_raw <- readr::read_csv(
+  file = paths$file_data_etc,
+  progress = FALSE
+)
+
+# Data wrangling
+etc_all <- assemble_etc(etc_raw)$out %>%
+  filter(is.na(date_onset) | date_onset <= as.Date("2019-11-30")) %>%
+  rename(vacc_etc = vacc,
+         date_vacc_etc = date_vacc)
+ 
+```
+
+# Summary
+
+Coverage: 
+
+* 70% of EVD-positive individuals and 72% of EVD-negative individuals have known vaccination status in the ETC line list. 64% of EVD-positive individuals have known vaccination status and, for those vaccinated, known vaccination-onset delay (63% for EVD-negative individuals).
+
+By ETC:
+
+* **Beni**. Main outbreaks September 2018 - January 2019, and April - August 2019. Good coverage of known vaccination status/delay for EVD-positive and EVD-negative from April 2019 onward. Relatively high disagreement (~22%) of vaccination status between ETC and MLL.
+* **Butembo**. Main outbreak October 2018 - September 2019, small drop in cases around March 2019. Butembo ETC was run by the MSP from ~March 2019 onward. Good coverage of vaccination status/delay across whole period, with worst coverage during the handover period (February - April 2019).
+* Mambasa. Few admissions (15 EVD-positive with known status/delay).
+* Katwa. Main outbreaks January - March 2019, and April - September 2019. Ok coverage of vaccination status/delay in first wave, but very poor coverage in second wave, especially for EVD-negative individuals.
+* **Komanda**. Main outbreak July - September 2019, although relatively few total admissions. OK coverage of vaccination status/delay for all individuals in whole period.
+* **Mangina**. Main outbreak April - December 2019. Managed by IMC from December 2018 onward. Good coverage of vaccination status/delay across whole period, although fewer EVD-negative individuals compared to EVD-positive before June 2019.
+
+
+# Time series of EVD cases
+
+```{r}
+show_etcs <- etc %>%
+  filter(evd_status) %>%
+  count(etc) %>%
+  filter(n > 10) %>%
+  pull(etc)
+
+etc %>%
+  filter(evd_status) %>%
+  count(week_onset = lubridate::floor_date(date_onset,
+                                           unit = "week", week_start = 1),
+        etc) %>%
+  complete(week_onset, etc,
+           fill = list(n = 0)) %>%
+  filter(etc %in% show_etcs,
+         !etc %in% c("CTE Mambasa", "Mangina (MSF)")) %>%
+  mutate(etc_collect = case_when(
+    grepl("Butembo", etc) ~ "Butembo",
+    grepl("Katwa", etc) ~ "Katwa",
+    grepl("Mangina", etc) ~ "Mangina",
+    TRUE ~ etc
+  )) %>%
+  ggplot(aes(x = week_onset, y = n, fill = etc)) +
+  geom_col() +
+  #
+  geom_vline(xintercept = as.Date("2019-06-13"), lty = 2, col = "grey50") +
+  #
+  facet_wrap(~ etc_collect) +
+  scale_x_date(breaks = "2 months",
+               labels = scales::label_date_short()) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Week onset", y = "Weekly cases",
+       title = "Weekly EVD admissions by ETC",
+       fill = "ETC") +
+  theme_bw()
+```
+
+
+
+# Coverage
+
+## Overall
+
+```{r}
+int_overall <- etc %>%
+  count(evd_status,
+        vacc_status = vacc_etc,
+        delay_k = (!is.na(delay_vacc_onset_gp) & delay_vacc_onset_gp != "negative")) %>%
+  group_by(evd_status) %>%
+  mutate(n_evd = sum(n),
+         n_vacc_k = sum(n[which(!is.na(vacc_status))]),
+         n_delay_k = sum(n[which(!vacc_status | (vacc_status & delay_k))])) %>%
+  group_by(evd_status, vacc_status) %>%
+  mutate(n_vacc = sum(n)) %>%
+  ungroup() %>%
+  mutate(p_vacc = n_vacc / n_evd,
+         p_vacc_k = n_vacc_k / n_evd,
+         p_delay_k = n_delay_k / n_evd,
+         p = n / n_vacc) %>%
+  mutate(across(.cols = contains("p_"), .fns = ~ round(.x, 2))) %>%
+  select(evd_status, n_evd,
+         n_vacc_k, p_vacc_k, n_delay_k, p_delay_k,
+         vacc_status, n_vacc, p_vacc,
+         delay_k, n, p)
+```
+
+Known vaccination status:
+
+```{r}
+int_overall %>%
+  select(evd_status, n_evd, 
+         n_vacc_k, p_vacc_k,
+         n_delay_k, p_delay_k) %>%
+  distinct() %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+Known vaccination status (details)
+
+```{r}
+int_overall %>%
+  select(evd_status, n_evd, vacc_status, n_vacc) %>%
+  distinct() %>%
+  left_join(int_overall %>%
+              filter(vacc_status, delay_k) %>%
+              select(evd_status, vacc_status, delay_k, n, p)) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+
+## By ETC
+
+```{r}
+show_etcs <- c(
+  show_etcs,
+  "Katwa (transit)", "Oicha (transit)", "Komanda (transit)"
+)
+
+int_etc <- etc %>%
+  count(etc,
+        evd_status,
+        vacc_status = vacc_etc,
+        delay_k = (!is.na(delay_vacc_onset_gp) & delay_vacc_onset_gp != "negative")) %>%
+  group_by(etc, evd_status) %>%
+  mutate(n_evd = sum(n),
+         n_vacc_k = sum(n[which(!is.na(vacc_status))]),
+         n_delay_k = sum(n[which(!vacc_status | (vacc_status & delay_k))])) %>%
+  group_by(etc, evd_status, vacc_status) %>%
+  mutate(n_vacc = sum(n)) %>%
+  ungroup() %>%
+  mutate(p_vacc = n_vacc / n_evd,
+         p_vacc_k = n_vacc_k / n_evd,
+         p_delay_k = n_delay_k / n_evd,
+         p = n / n_vacc) %>%
+  mutate(across(.cols = contains("p_"), .fns = ~ round(.x, 2))) %>%
+  select(etc, evd_status, n_evd,
+         n_vacc_k, p_vacc_k, n_delay_k, p_delay_k,
+         vacc_status, n_vacc, p_vacc,
+         delay_k, n, p)
+```
+
+Known vaccination status:
+
+```{r}
+int_etc %>%
+  filter(etc %in% show_etcs) %>%
+  select(etc, evd_status, n_evd, 
+         n_vacc_k, p_vacc_k,
+         n_delay_k, p_delay_k) %>%
+  distinct() %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+Known vaccination status (details):
+
+```{r}
+int_etc %>%
+  filter(etc %in% show_etcs) %>%
+  select(etc, evd_status, n_evd, vacc_status, n_vacc) %>%
+  distinct() %>%
+  left_join(int_etc %>%
+              filter(vacc_status, delay_k) %>%
+              select(etc, evd_status, vacc_status, delay_k, n, p)) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+## By ETC and calendar month
+
+```{r}
+int_etctime <- etc %>%
+  count(etc,
+        time_onset = lubridate::floor_date(date_onset, unit = "month"),
+        evd_status,
+        vacc_status = vacc_etc,
+        delay_k = (!is.na(delay_vacc_onset_gp) & delay_vacc_onset_gp != "negative")) %>%
+  group_by(etc, time_onset, evd_status) %>%
+  mutate(n_evd = sum(n),
+         n_vacc_k = sum(n[which(!is.na(vacc_status))]),
+         n_delay_k = sum(n[which(!vacc_status | (vacc_status & delay_k))])) %>%
+  group_by(etc, time_onset, evd_status, vacc_status) %>%
+  mutate(n_vacc = sum(n)) %>%
+  ungroup() %>%
+  mutate(p_vacc = n_vacc / n_evd,
+         p_vacc_k = n_vacc_k / n_evd,
+         p_delay_k = n_delay_k / n_evd,
+         p = n / n_vacc) %>%
+  mutate(across(.cols = contains("p_"), .fns = ~ round(.x, 2))) %>%
+  select(etc, time_onset, evd_status, n_evd,
+         n_vacc_k, p_vacc_k, n_delay_k, p_delay_k,
+         vacc_status, n_vacc, p_vacc,
+         delay_k, n, p)
+# int_etctime %>%
+#   select(-c(delay_k, n, p)) %>%
+#   distinct() %>%
+#   left_join(int_etctime %>%
+#               filter(vacc_status, delay_k) %>%
+#               select(etc, time_onset, evd_status, vacc_status, delay_k, n, p))
+```
+
+### EVD-positive
+
+```{r}
+# Known status (TRUE or FALSE)
+int_etctime %>%
+  select(-c(delay_k, n, p)) %>%
+  distinct() %>%
+  left_join(int_etctime %>%
+              filter(vacc_status, delay_k) %>%
+              select(etc, time_onset, evd_status, vacc_status, delay_k, n, p)) %>%
+  filter(evd_status, vacc_status) %>%
+  filter(etc %in% show_etcs) %>%
+  mutate(pt_label = ifelse(!is.na(n_vacc_k),
+                           paste0(n_vacc_k, " / ", n_evd),
+                           "")) %>%
+  #
+  ggplot(aes(x = time_onset, y = etc)) +
+  geom_vline(xintercept = as.Date("2018-08-18"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-06-14"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-12-02"), lty = 2, col = "grey50") +
+  # 
+  geom_point(aes(size = n_evd), col = "lightgrey") + 
+  geom_point(aes(size = n_vacc_k, col = 100*p_vacc_k)) + 
+  geom_text(aes(label = pt_label)) +
+  #
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+  scale_size_continuous(range = c(3, 14), guide = "none") +
+  scale_color_fermenter(palette = "RdYlGn", direction = 1, n.breaks = 9) +
+  labs(x = "Month", y = "",
+       title = "EVD-positive cases with known vaccination status",
+       col = "%*",
+       caption = "*% of all EVD-positive cases",
+       size = "n") +
+  theme_minimal()
+
+# Known delay (status TRUE), or status FALSE
+int_etctime %>%
+  select(-c(delay_k, n, p)) %>%
+  distinct() %>%
+  left_join(int_etctime %>%
+              filter(vacc_status, delay_k) %>%
+              select(etc, time_onset, evd_status, vacc_status, delay_k, n, p)) %>%
+  filter(evd_status, vacc_status) %>%
+  filter(etc %in% show_etcs) %>%
+  mutate(pt_label = ifelse(!is.na(n_delay_k),
+                           paste0(n_delay_k, " / ", n_evd),
+                           "")) %>%
+  #
+  ggplot(aes(x = time_onset, y = etc)) +
+  geom_vline(xintercept = as.Date("2018-08-18"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-06-14"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-12-02"), lty = 2, col = "grey50") +
+  # 
+  geom_point(aes(size = n_evd), col = "lightgrey") + 
+  geom_point(aes(size = n_delay_k, col = p_delay_k)) + 
+  geom_text(aes(label = pt_label)) +
+  #
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+  scale_size_continuous(range = c(3, 14), guide = "none") +
+  scale_color_fermenter(palette = "RdYlGn", direction = 1, n.breaks = 9) +
+  labs(x = "Month", y = "",
+       title = "EVD-positive cases with known vaccination status, vaccination-onset delay known for vaccinated cases",
+       col = "%*",
+       caption = "*% of all EVD-positive cases",
+       size = "n") +
+  theme_minimal()
+```
+
+```{r}
+# Known status (TRUE or FALSE)
+int_etctime %>%
+  select(-c(delay_k, n, p)) %>%
+  distinct() %>%
+  left_join(int_etctime %>%
+              filter(vacc_status, delay_k) %>%
+              select(etc, time_onset, evd_status, vacc_status, delay_k, n, p)) %>%
+  filter(!evd_status, vacc_status) %>%
+  filter(etc %in% show_etcs) %>%
+  mutate(pt_label = ifelse(!is.na(n_vacc_k),
+                           paste0(n_vacc_k, " / ", n_evd),
+                           "")) %>%
+  #
+  ggplot(aes(x = time_onset, y = etc)) +
+  geom_vline(xintercept = as.Date("2018-08-18"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-06-14"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-12-02"), lty = 2, col = "grey50") +
+  # 
+  geom_point(aes(size = n_evd), col = "lightgrey") + 
+  geom_point(aes(size = n_vacc_k, col = p_vacc_k)) + 
+  geom_text(aes(label = pt_label)) +
+  #
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+  scale_size_continuous(range = c(3, 14), guide = "none") +
+  scale_color_fermenter(palette = "RdYlGn", direction = 1, n.breaks = 9) +
+  labs(x = "Month", y = "",
+       title = "EVD-negative individuals with known vaccination status",
+       col = "%*",
+       caption = "*% of all EVD-negative individuals",
+       size = "n") +
+  theme_minimal()
+
+# Known delay (status TRUE), or status FALSE
+int_etctime %>%
+  select(-c(delay_k, n, p)) %>%
+  distinct() %>%
+  left_join(int_etctime %>%
+              filter(vacc_status, delay_k) %>%
+              select(etc, time_onset, evd_status, vacc_status, delay_k, n, p)) %>%
+  filter(!evd_status, vacc_status) %>%
+  filter(etc %in% show_etcs) %>%
+  mutate(pt_label = ifelse(!is.na(n_delay_k),
+                           paste0(n_delay_k, " / ", n_evd),
+                           "")) %>%
+  #
+  ggplot(aes(x = time_onset, y = etc)) +
+  geom_vline(xintercept = as.Date("2018-08-18"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-06-14"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-12-02"), lty = 2, col = "grey50") +
+  # 
+  geom_point(aes(size = n_evd), col = "lightgrey") + 
+  geom_point(aes(size = n_delay_k, col = p_delay_k)) + 
+  geom_text(aes(label = pt_label)) +
+  #
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+  scale_size_continuous(range = c(3, 14), guide = "none") +
+  scale_color_fermenter(palette = "RdYlGn", direction = 1, n.breaks = 9) +
+  labs(x = "Month", y = "",
+       title = "EVD-negative individuals with known vaccination status, vaccination-onset delay known for vaccinated individuals",
+       col = "%*",
+       caption = "*% of all EVD-negative individuals",
+       size = "n") +
+  theme_minimal()
+```
+
+# Comparison
+
+## Vaccination status
+
+Among EVD-positive cases only.
+
+### Coverage of BDC and MLL
+
+```{r}
+# BDC coverage
+etc %>%
+  filter(evd_status,
+         etc %in% show_etcs) %>%
+  count(etc, vacc_bdc) %>%
+  group_by(etc) %>%
+  mutate(n_etc = sum(n),
+         n_vacc_k = sum(n[which(!is.na(vacc_bdc))])) %>%
+  ungroup() %>%
+  mutate(p_vacc_k = n_vacc_k / n_etc,
+         p = n / n_etc) %>%
+  mutate(across(.cols = contains("p_"), .fns = ~ round(.x, 2))) %>%
+  select(etc, n_etc, n_vacc_k, p_vacc_k) %>%
+  distinct() %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+
+# MLL coverage
+etc %>%
+  filter(evd_status,
+         etc %in% show_etcs) %>%
+  count(etc, vacc_mll) %>%
+  group_by(etc) %>%
+  mutate(n_etc = sum(n),
+         n_vacc_k = sum(n[which(!is.na(vacc_mll))])) %>%
+  ungroup() %>%
+  mutate(p_vacc_k = n_vacc_k / n_etc,
+         p = n / n_etc) %>%
+  mutate(across(.cols = contains("p_"), .fns = ~ round(.x, 2))) %>%
+  select(etc, n_etc, n_vacc_k, p_vacc_k) %>%
+  distinct() %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+```{r}
+compare_status <- etc %>% 
+  mutate(
+    vacc_match_decision = case_when(
+      
+      # All equal
+      vacc_mll & vacc_etc & vacc_bdc ~ "yes",
+      !vacc_mll & !vacc_etc & !vacc_bdc ~ "no",
+      ## All missing
+      is.na(vacc_mll) & is.na(vacc_etc) & is.na(vacc_bdc) ~ "unknown",
+  
+      # One missing
+      vacc_mll & vacc_etc & is.na(vacc_bdc) ~ "yes",
+      !vacc_mll & !vacc_etc & is.na(vacc_bdc) ~ "no",
+      vacc_mll & is.na(vacc_etc) & vacc_bdc ~ "yes",
+      !vacc_mll & is.na(vacc_etc) & !vacc_bdc ~ "no",
+      is.na(vacc_mll) & vacc_etc & vacc_bdc ~ "yes",
+      is.na(vacc_mll) & !vacc_etc & !vacc_bdc ~ "no",
+      
+      # Two missing
+      vacc_mll & is.na(vacc_etc) & is.na(vacc_bdc) ~ "inconclusive (yes)",
+      is.na(vacc_mll) & vacc_etc & is.na(vacc_bdc) ~ "inconclusive (yes)",
+      is.na(vacc_mll) & is.na(vacc_etc) & vacc_bdc ~ "inconclusive (yes)",
+      !vacc_mll & is.na(vacc_etc) & is.na(vacc_bdc) ~ "inconclusive (no)",
+      is.na(vacc_mll) & !vacc_etc & is.na(vacc_bdc) ~ "inconclusive (no)",
+      is.na(vacc_mll) & is.na(vacc_etc) & !vacc_bdc ~ "inconclusive (no)",
+      
+      # Any disagreement
+      TRUE ~ "disagree"
+    ),
+    vacc_match_decision = factor(vacc_match_decision,
+                                 c("yes", "no", "inconclusive (yes)", "inconclusive (no)", "disagree", "unknown"))
+  ) %>%
+  mutate(
+    sum_decision = case_when(
+      vacc_match_decision %in% c("yes", "no", "unknown") ~ "agree",
+      vacc_match_decision == "disagree" ~ "disagree",
+      TRUE ~ "inconclusive"
+      ),
+    sum_decision = factor(sum_decision, c("agree", "inconclusive", "disagree"), ordered = TRUE)
+    )
+```
+
+### Comparison (ETC with BDC/MLL)
+
+```{r}
+# Overall
+compare_status %>%
+  filter(evd_status,
+         !is.na(vacc_etc)) %>%
+  count(sum_decision) %>%
+  mutate(p = scales::percent(n/sum(n), accuracy = 0.1)) %>%
+  arrange(sum_decision) %>%
+  flextable() %>% 
+  flextable::theme_zebra() %>% 
+  flextable::set_header_labels(sum_decision = "")
+
+# By ETC
+compare_status %>%
+  filter(evd_status,
+         !is.na(vacc_etc)) %>%
+  count(etc, sum_decision) %>%
+  complete(etc, sum_decision, fill = list(n = 0)) %>%
+  group_by(etc) %>%
+  mutate(n_etc = sum(n),
+         p = scales::percent(n/sum(n), accuracy = 0.1)) %>%
+  filter(n_etc > 15,
+         sum_decision != "inconclusive") %>%
+  select(etc, n_etc,
+         sum_decision, n, p) %>%
+  arrange(etc, sum_decision) %>%
+  flextable() %>% 
+  flextable::theme_zebra() %>% 
+  flextable::set_header_labels(sum_decision = "")
+```
+
+```{r}
+temp <- compare_status %>%
+  filter(evd_status,
+         !is.na(vacc_etc)) %>%
+  count(etc,
+        month_onset = lubridate::floor_date(date_onset, unit = "month"),
+        vacc_match_decision) %>%
+  group_by(etc, month_onset) %>%
+  mutate(total = sum(n),
+         total_known = sum(n[which(vacc_match_decision != "unknown")]),
+         n_weak = sum(n[which(!vacc_match_decision %in% c("unknown", "disagree"))]),
+         n_strong = sum(n[which(vacc_match_decision %in% c("yes", "no"))])) %>%
+  mutate(p_weak = n_weak / total_known,
+         p_strong = n_strong / total_known,
+         p_known = total_known / total)
+```
+
+```{r}
+temp %>%
+  filter(etc %in% show_etcs) %>%
+  ggplot(aes(x = month_onset, y = etc)) +
+  geom_vline(xintercept = as.Date("2018-08-18"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-06-14"), lty = 2, col = "grey50") +
+  geom_vline(xintercept = as.Date("2019-12-02"), lty = 2, col = "grey50") +
+  geom_point(aes(size = total, col = 1 - p_weak)) + 
+  geom_text(aes(label = paste0(total_known - n_weak, " / ", total_known)), size = 3) +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%y") +
+  scale_size_continuous(breaks = seq(0, 100, 20), range = c(3, 14)) +
+  scale_color_fermenter(palette = "RdYlGn", limits = c(0, 1), breaks = seq(0.1, 0.9, 0.1), direction = -1) +
+  labs(x = "Month", y = "",
+       col = "% disagree",
+       caption = "Comparison with BDC and MLL. Number of EVD cases where there is disagreement.",
+       size = "Cases") +
+  theme_minimal()
+```
+
+
+## Vaccination date
+
+Among vaccinated EVD-positive cases.
+
+### Coverage of BDC and MLL
+```{r}
+## BDC coverage
+etc %>%
+  filter(evd_status,
+         vacc_etc,
+         etc %in% show_etcs) %>%
+  group_by(
+    etc,
+    has_date_bdc = !is.na(date_vacc_bdc)
+  ) %>%
+  summarise(n = n()) %>%
+  mutate(n_etc = sum(n),
+         p = n / n_etc) %>%
+  mutate(across(.cols = contains("p"), .fns = ~ round(.x, 2))) %>%
+  select(etc, n_etc, has_date_bdc, n, p) %>%
+  filter(has_date_bdc) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+
+# MLL coverage
+etc %>%
+  filter(evd_status,
+         vacc_etc,
+         etc %in% show_etcs) %>%
+  group_by(
+    etc,
+    has_date_mll = !is.na(date_vacc_mll)
+  ) %>%
+  summarise(n = n()) %>%
+  mutate(n_etc = sum(n),
+         p = n / n_etc) %>%
+  mutate(across(.cols = contains("p"), .fns = ~ round(.x, 2))) %>%
+  select(etc, n_etc, has_date_mll, n, p) %>%
+  filter(has_date_mll) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```
+
+```{r}
+compare_date <- etc %>%
+  filter(evd_status,
+         vacc_etc) %>%
+  mutate(
+    is_missing_bdc = case_when(
+      is.na(date_vacc_etc) & is.na(date_vacc_bdc) ~ "both",
+      is.na(date_vacc_etc) ~ "etc",
+      is.na(date_vacc_bdc) ~ "bdc"
+    ),
+    is_missing_mll = case_when(
+      is.na(date_vacc_etc) & is.na(date_vacc_mll) ~ "both",
+      is.na(date_vacc_etc) ~ "etc",
+      is.na(date_vacc_mll) ~ "mll"
+    ),
+    diff_abs_mll = abs(as.integer(date_vacc_mll - date_vacc_etc)),
+    diff_abs_bdc = abs(as.integer(date_vacc_bdc - date_vacc_etc))
+  )
+```
+
+```{r}
+# ETC vs. BDC
+compare_date %>%
+  filter(etc %in% show_etcs) %>%
+  rename(diff_days = diff_abs_bdc) %>%
+  mutate(diff_gp = case_when(
+    diff_days <= 1 ~ paste0(diff_days),
+    diff_days > 1 ~ "2+"
+  )) %>%
+  count(etc, diff_gp, is_missing_bdc) %>%
+  complete(etc, nesting(diff_gp, is_missing_bdc), fill = list(n = 0)) %>%
+  group_by(etc) %>%
+  mutate(n_etc = sum(n),
+         p = round(n / n_etc, 2)) %>%
+  select(etc, n_etc, diff_gp, is_missing = is_missing_bdc, n, p) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+
+# ETC vs. MLL
+compare_date %>%
+  filter(etc %in% show_etcs) %>%
+  rename(diff_days = diff_abs_mll) %>%
+  mutate(diff_gp = case_when(
+    diff_days <= 1 ~ paste0(diff_days),
+    diff_days > 1 ~ "2+"
+  )) %>%
+  count(etc, diff_gp, is_missing_mll) %>%
+  complete(etc, nesting(diff_gp, is_missing_mll), fill = list(n = 0)) %>%
+  group_by(etc) %>%
+  mutate(n_etc = sum(n),
+         p = round(n / n_etc, 2)) %>%
+  select(etc, n_etc, diff_gp, is_missing = is_missing_mll, n, p) %>%
+  #
+  flextable() %>% 
+  flextable::theme_zebra()
+```

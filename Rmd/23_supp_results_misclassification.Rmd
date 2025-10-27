@@ -1,0 +1,754 @@
+---
+title: "Misclassification of vaccination status"
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = TRUE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r, include = FALSE}
+library(here)
+
+library(magrittr)
+library(dplyr)
+library(tidyr)
+
+library(tibble)
+library(gtsummary)
+library(patchwork)
+library(ggplot2)
+```
+
+```{r, include = FALSE}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+```
+
+```{r}
+source(here("R/summarise_model.R"))
+```
+
+
+# Load data
+
+```{r}
+etc_elig <- readRDS(file = here("outputs", "0_data_imp", "raw_unmatched_alleligible.rds"))
+etc_elig_imp <- readRDS(file = here("outputs", "0_data_imp", "imp_m50_unmatched_alleligible__i2.rds"))
+etc_elig_pri <- readRDS(file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1.rds"))
+```
+
+```{r}
+model_a1 <- readRDS(here("outputs", "3_model_samples", "imp_10d_a1.rds"))
+
+model_a1__ex_man <- readRDS(here("outputs", "3_model_samples", "_archive2", "imp_10d_a1__ex_mangina.rds"))
+model_a1__ex_man_all <- readRDS(here("outputs", "3_model_samples", "imp_10d_a1__ex_mangina_all.rds"))
+model_a1__ex_3m <- readRDS(here("outputs", "3_model_samples", "_archive2", "imp_10d_a1__ex_delay_3m.rds"))
+model_a1__ex_6m <- readRDS(here("outputs", "3_model_samples", "_archive2", "imp_10d_a1__ex_delay_6m.rds"))
+```
+
+
+
+# B1: unilateral misclassification
+
+```{r}
+vmisclass_tb_n <- readRDS(here("outputs", "vmisclass_tb_n.rds"))
+vmisclass_tb_n <- vmisclass_tb_n %>%
+   mutate(
+    name = stringr::str_remove(file, "imp_10d_a1__"),
+    name = stringr::str_remove(name, ".rds")
+  ) %>%
+  mutate(
+    evd_status = case_when(
+      grepl("evdp", name) ~ "EVD-pos",
+      grepl("evdn", name) ~ "EVD-neg"
+    ),
+    vacc_status = case_when(
+      grepl("_u_", name) ~ "Unvaccinated",
+      grepl("_v_", name) ~ "Vaccinated (10+ days)"
+    ),
+    n = case_when(
+      grepl("n10", name) ~ 10,
+      grepl("n1", name) ~ 1,
+      grepl("imp_10d_a1.rds", file) ~ 0
+    )
+  ) %>%
+  mutate(
+    gp_status = ifelse(
+      is.na(evd_status),
+      "All (baseline)",
+      paste0(evd_status, ", ", vacc_status)
+    )
+  ) %>%
+  arrange(evd_status, vacc_status, n) %>%
+  mutate(ve_q50_diff = ve_q50 - vmisclass_tb_n$ve_q50[which(vmisclass_tb_n$file == "imp_10d_a1.rds")])
+
+vmisclass_tb_p <- readRDS(here("outputs", "vmisclass_tb_p.rds"))
+vmisclass_tb_p <- vmisclass_tb_p %>%
+  mutate(
+    name = stringr::str_remove(file, "imp_10d_a1__"),
+    name = stringr::str_remove(name, ".rds")
+  ) %>%
+  mutate(
+    evd_status = case_when(
+      grepl("evdp", name) ~ "EVD-pos",
+      grepl("evdn", name) ~ "EVD-neg"
+    ),
+    vacc_status = case_when(
+      grepl("_u_", name) ~ "Unvaccinated",
+      grepl("_v_", name) ~ "Vaccinated (10+ days)"
+    ),
+    p = case_when(
+      grepl("p5", name) ~ 0.05,
+      grepl("p10", name) ~ 0.1,
+      grepl("imp_10d_a1.rds", file) ~ 0
+    )
+  ) %>%
+  mutate(
+    gp_status = ifelse(
+      is.na(evd_status),
+      "All (baseline)",
+      paste0(evd_status, ", ", vacc_status)
+    )
+  ) %>%
+  arrange(evd_status, vacc_status, p) %>%
+  mutate(ve_q50_diff = ve_q50 - vmisclass_tb_p$ve_q50[which(vmisclass_tb_p$file == "imp_10d_a1.rds")]) %>%
+  mutate(
+    p_label = paste0(100*p, "%"),
+    p_label = factor(p_label, c("0%", "5%", "10%")) 
+    )
+```
+
+```{r}
+g_vmissclass_p <- vmisclass_tb_p %>%
+  ggplot(aes(x = gp_status, y = ve_q50, col = p_label)) +
+  # Reference
+  geom_hline(
+    yintercept = vmisclass_tb_p$ve_q50[which(vmisclass_tb_p$file == "imp_10d_a1.rds")],
+    lty = 2, col = "tomato3", alpha = 0.8, lwd = 0.5
+  ) +
+  #
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = ve_q025, ymax = ve_q975), width = 0, lwd = 0.8, position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = ve_q25, ymax = ve_q75), width = 0, lwd = 1.5, position = position_dodge(width = 0.5)) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = list(
+      "0%" = "tomato3",
+      "5%" = RColorBrewer::brewer.pal(n = 4, "Paired")[1],
+      "10%" = RColorBrewer::brewer.pal(n = 4, "Paired")[2]
+    )
+  ) +
+  labs(x = "Infection-vaccination group", y = "Vaccine effectiveness (%)", col = "Proportion of individuals misclassified") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_vmissclass_n <- vmisclass_tb_n %>%
+  ggplot(aes(x = gp_status, y = ve_q50, col = as.character(n))) +
+  # Reference
+  geom_hline(
+    yintercept = vmisclass_tb_n$ve_q50[which(vmisclass_tb_n$file == "imp_10d_a1.rds")],
+    lty = 2, col = "tomato3", alpha = 0.8, lwd = 0.5
+  ) +
+  #
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = ve_q025, ymax = ve_q975), width = 0, lwd = 0.8, position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = ve_q25, ymax = ve_q75), width = 0, lwd = 1.5, position = position_dodge(width = 0.5)) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = list(
+      "0" = "tomato3",
+      "1" = RColorBrewer::brewer.pal(n = 10, "Paired")[9],
+      "10" = RColorBrewer::brewer.pal(n = 10, "Paired")[10]
+    )
+  ) +
+  labs(x = "Infection-vaccination group", y = "Vaccine effectiveness (%)", col = "Number of individuals misclassified") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_vmissclass_n / g_vmissclass_p
+```
+
+
+# B2: focus on vaccinated cases
+
+## Population characteristics
+
+```{r}
+etc_vacc_cases <- etc_elig %>%
+  filter(evd_status == "EVD-pos", vacc_status == "Vaccinated (10+ days)") %>%
+  count(etc) %>%
+  arrange(-n) %>%
+  pull(etc)
+```
+
+### Raw
+```{r}
+# Demographics
+t_cases_demog <- etc_elig %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status %in% c("Vaccinated (10+ days)", "Unvaccinated")
+    ) %>%
+  mutate(
+    vacc_status = factor(
+      vacc_status,
+      c("Vaccinated (10+ days)", "Unvaccinated"),
+      ordered = TRUE
+    )
+  ) %>%
+  mutate(
+    etc_gp = ifelse(
+      etc %in% etc_vacc_cases,
+      etc,
+      "Other"
+    ),
+    etc_gp = factor(
+      etc_gp,
+      c(etc_vacc_cases, "Other"),
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    Sex = sex,
+    `Age (years)` = age_gp,
+    `Health zone` = adm2_name__res_gp,
+    `Month symptom onset` = month_onset,
+    ETC = etc_gp,
+    `Contact EVD case` = contact_evd_case
+    ) %>%
+  tbl_summary(
+    by = vacc_status,
+    missing_text = "(Missing)"
+    )
+t_cases_demog
+
+# Save table
+gt::gtsave(
+  as_gt(t_cases_demog),
+  file = here("outputs", "tables", "tb_demographics_cases.docx")
+)
+```
+
+```{r}
+# Exposure
+t_cases_exp <- etc_elig %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status %in% c("Vaccinated (10+ days)", "Unvaccinated")
+    ) %>%
+  mutate(
+    vacc_status = factor(
+      vacc_status,
+      c("Vaccinated (10+ days)", "Unvaccinated"),
+      ordered = TRUE
+    )
+  ) %>%
+  mutate(
+    ctr_known = ifelse(is.na(ctr_known), "Unknown", ctr_known),
+    ctr_known = factor(
+      ctr_known,
+      c("Yes", "No", "Unknown"),
+      ordered = TRUE
+    ),
+    ctr_followed = ifelse(is.na(ctr_followed), "Unknown", ctr_followed),
+    ctr_followed = factor(
+      ctr_followed,
+      c("Yes", "No", "Unknown"),
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    `Contact with EVD case` = contact_evd_case,
+    `Any reported exposure` = contact_any,
+    `Cases in health area` = any_adm3,
+    `Cases in health zone` = any_adm2
+    ) %>%
+  tbl_summary(
+    by = vacc_status,
+    type = list(`Contact with EVD case` ~ "categorical",
+                `Any reported exposure` ~ "categorical",
+                `Cases in health area` ~ "categorical",
+                `Cases in health zone` ~ "categorical"
+                ),
+    missing_text = "(Missing)"
+  )
+
+# Save table
+gt::gtsave(
+  as_gt(t_cases_exp),
+  file = here("outputs", "tables", "tb_evdexposure_cases.docx")
+)
+```
+
+### Raw (contact EVD case)
+```{r}
+t_cases_contactevd_demog <- etc_elig %>%
+  filter(contact_evd_case == "Yes") %>%
+  mutate(
+    etc_gp = ifelse(
+      etc %in% etc_vacc_cases,
+      etc,
+      "Other"
+    ),
+    etc_gp = factor(
+      etc_gp,
+      etc_vacc_cases,
+      ordered = TRUE
+    )
+  ) %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status %in% c("Vaccinated (10+ days)", "Unvaccinated")
+    ) %>%
+  mutate(
+    vacc_status = factor(
+      vacc_status,
+      c("Vaccinated (10+ days)", "Unvaccinated"),
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    Sex = sex,
+    `Age (years)` = age_gp,
+    `Health zone` = adm2_name__res_gp,
+    `Month symptom onset` = month_onset,
+    ETC = etc_gp
+    ) %>%
+  tbl_summary(
+    by = vacc_status,
+    missing_text = "(Missing)"
+  )
+
+# Save table
+gt::gtsave(
+  as_gt(t_cases_contactevd_demog),
+  file = here("outputs", "tables", "tb_demographics_cases_contactevd.docx")
+)
+```
+
+### Raw (Mangina)
+```{r}
+adm2_vacc_cases_man <- etc_elig %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status == "Vaccinated (10+ days)",
+    etc == "Mangina (IMC)"
+  ) %>%
+  count(adm2_name__res) %>%
+  arrange(-n) %>%
+  pull(adm2_name__res)
+adm3_vacc_cases_man <- etc_elig %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status == "Vaccinated (10+ days)",
+    etc == "Mangina (IMC)"
+  ) %>%
+  count(adm3_name__res) %>%
+  arrange(-n) %>%
+  pull(adm3_name__res)
+```
+
+```{r}
+t_cases_mangina_demog <- etc_elig %>%
+  filter(etc == "Mangina (IMC)") %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status %in% c("Vaccinated (10+ days)", "Unvaccinated")
+    ) %>%
+  # Month of admission
+  mutate(
+    month_admission = lubridate::floor_date(date_admission_eff, unit = "month"),
+    month_admission = format.Date(month_admission, format = "%Y-%m")
+  ) %>%
+  # Month of vaccination
+  mutate(
+    month_vacc = lubridate::floor_date(date_vacc, unit = "month"),
+    month_vacc = format.Date(month_vacc, format = "%Y-%m")
+  ) %>%
+  # Health zone
+  mutate(
+    adm2_name__res_gp = ifelse(
+      adm2_name__res %in% adm2_vacc_cases_man,
+      adm2_name__res,
+      "Other"
+    ),
+    adm2_name__res_gp = factor(
+      adm2_name__res_gp,
+      c(adm2_vacc_cases_man, "Other"),
+      ordered = TRUE
+    )
+  ) %>%
+  # Health area
+  mutate(
+    adm3_name__res_gp = ifelse(
+      adm3_name__res %in% adm3_vacc_cases_man,
+      adm3_name__res,
+      "Other"
+    ),
+    adm3_name__res_gp = factor(
+      adm3_name__res_gp,
+      c(adm3_vacc_cases_man, "Other"),
+      ordered = TRUE
+    )
+  ) %>%
+  # Recode vaccination status
+  mutate(
+    vacc_status = factor(
+      vacc_status,
+      c("Vaccinated (10+ days)", "Unvaccinated"),
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    Sex = sex,
+    `Age (years)` = age_gp,
+    `Health zone` = adm2_name__res_gp,
+    `Health area` = adm3_name__res_gp,
+    `Contact with EVD case` = contact_evd_case,
+    `Month symptom onset` = month_onset,
+    `Month admission` = month_admission
+    ) %>%
+  tbl_summary(
+    by = vacc_status,
+    missing_text = "(Missing)"
+  )
+t_cases_mangina_demog %>%
+  add_p(test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE))
+
+# Save table
+gt::gtsave(
+  as_gt(t_cases_mangina_demog),
+  file = here("outputs", "tables", "tb_demographics_cases_mangina.docx")
+)
+```
+
+### Imputed and matched
+```{r}
+# How many vaccinated cases are imputed?
+etc_elig_imp %>%
+  filter(contact_evd_case == "Yes") %>%
+  filter(evd_status == "EVD-pos", vacc_status == "Vaccinated (10+ days)") %>%
+  mutate(
+    contact_evd_case = ifelse(is.na(contact_evd_case), "Unknown", contact_evd_case),
+    is_imputed = ifelse(is.na(date_vacc), "Imputed", "Raw"),
+    is_imputed = factor(is_imputed, c("Raw", "Imputed"), ordered = TRUE)
+  ) %>%
+  select(.imp, is_imputed) %>%
+  na.omit() %>%
+  count(.imp, is_imputed) %>%
+  group_by(is_imputed) %>%
+  summarise(
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n)
+  )
+```
+
+```{r}
+# How many vaccinated cases are imputed AND matched?
+etc_elig_pri$sample_df %>%
+  filter(evd_status == "EVD-pos", vacc_status == "Vaccinated (10+ days)") %>%
+  mutate(
+    contact_evd_case = ifelse(is.na(contact_evd_case), "Unknown", contact_evd_case),
+    is_imputed = ifelse(is.na(date_vacc), "Imputed", "Raw"),
+    is_imputed = factor(is_imputed, c("Raw", "Imputed"), ordered = TRUE)
+  ) %>%
+  select(.imp, .iter, is_imputed) %>%
+  na.omit() %>%
+  count(.imp, .iter, is_imputed) %>%
+  group_by(is_imputed_matched = is_imputed) %>%
+  summarise(
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n)
+  )
+```
+
+```{r}
+etc_elig_pri$sample_df %>%
+  filter(.iter == 21) %>%
+  filter(evd_status == "EVD-pos", vacc_status == "Vaccinated (10+ days)") %>%
+  mutate(
+    is_imputed = ifelse(is.na(date_vacc), "Imputed", "Raw"),
+    is_imputed = factor(is_imputed, c("Raw", "Imputed"), ordered = TRUE)
+  ) %>%
+  mutate(
+    etc_gp = ifelse(
+      etc %in% etc_vacc_cases,
+      etc,
+      "Other"
+    ),
+    etc_gp = factor(
+      etc_gp,
+      etc_vacc_cases,
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    is_imputed,
+    Sex = sex,
+    `Age (years)` = age_gp,
+    `Health zone` = adm2_name__res_gp,
+    ETC = etc_gp,
+    `Month symptom onset` = month_onset
+    ) %>%
+  # na.omit() %>%
+  tbl_summary(by = is_imputed, missing_text = "(Missing)") %>%
+  modify_spanning_header(
+    all_stat_cols() ~ "*Breakdown*") %>%
+  add_overall()
+```
+
+```{r}
+etc_elig_pri$sample_df %>%
+  filter(.iter == 21) %>%
+  filter(
+    evd_status == "EVD-pos",
+    vacc_status %in% c("Vaccinated (10+ days)", "Unvaccinated")
+  ) %>%
+  mutate(
+    is_imputed = ifelse(is.na(date_vacc), "Imputed", "Raw"),
+    is_imputed = factor(is_imputed, c("Raw", "Imputed"), ordered = TRUE)
+  ) %>%
+  mutate(
+    vacc_status = factor(
+      vacc_status,
+      c("Vaccinated (10+ days)", "Unvaccinated"),
+      ordered = TRUE
+    )
+  ) %>%
+  mutate(
+    etc_gp = ifelse(
+      etc %in% etc_vacc_cases,
+      etc,
+      "Other"
+    ),
+    etc_gp = factor(
+      etc_gp,
+      etc_vacc_cases,
+      ordered = TRUE
+    )
+  ) %>%
+  select(
+    vacc_status,
+    Sex = sex,
+    `Age (years)` = age_gp,
+    `Health zone` = adm2_name__res_gp,
+    `Month symptom onset` = month_onset,
+    ETC = etc_gp,
+    ) %>%
+  tbl_summary(by = vacc_status, missing_text = "(Missing)")
+```
+
+
+## Effect of excluding Mangina
+
+```{r}
+tmp <- bind_rows(
+  model_a1 %>% mutate(supp = "Baseline"),
+  model_a1__ex_man %>% mutate(supp = "Excluding Mangina breakthrough cases"),
+) %>%
+  mutate(
+    supp = factor(supp,
+                  c("Baseline", "Excluding Mangina breakthrough cases"),
+                  ordered = TRUE)
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, supp)
+```
+
+### Figure
+```{r}
+g_mangina_a <- tmp %>%
+  ggplot(aes(x = ve, col = supp)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Excluding Mangina breakthrough cases" = "grey50")) +
+  labs(x = NULL, y = "density",
+       col = "Analysis",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_mangina_b <- summarise_ve(tmp, supp) %>%
+  ggplot(aes(y = supp, x = ve_50, col = supp)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  coord_trans(xlim = c(40, 100)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Excluding Mangina breakthrough cases" = "grey50")) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Analysis",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_mangina_a / g_mangina_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+## Effect of excluding long vaccination-onset delays
+
+```{r}
+tmp <- bind_rows(
+  model_a1 %>% mutate(supp = "Baseline"),
+  model_a1__ex_3m %>% mutate(supp = "Exclude delays > 3 months"),
+  model_a1__ex_6m %>% mutate(supp = "Exclude delays > 6 months")
+) %>%
+  mutate(
+    supp = factor(supp,
+                  c("Baseline", "Exclude delays > 3 months", "Exclude delays > 6 months"),
+                  ordered = TRUE)
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, supp)
+```
+
+### Figure
+```{r}
+g_delay_a <- tmp %>%
+  ggplot(aes(x = ve, col = supp)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Exclude delays > 3 months" = "grey30", "Exclude delays > 6 months" = "grey70")) +
+  labs(x = NULL, y = "density",
+       col = "Analysis",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_delay_b <- summarise_ve(tmp, supp) %>%
+  ggplot(aes(y = supp, x = ve_50, col = supp)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  coord_trans(xlim = c(40, 100)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Exclude delays > 3 months" = "grey30", "Exclude delays > 6 months" = "grey70")) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Analysis",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_delay_a / g_delay_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+# B3: excluding Mangina ETC
+
+```{r}
+imp_a1__ex_mangina_all <- readRDS(
+  file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1__excl_mangina_all.rds")
+)
+
+imp_a1__ex_mangina_all$sample_df %>%
+  count(.iter, evd_status, vacc_status) %>%
+  group_by(.iter, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*n/nevd
+  ) %>%
+  group_by(evd_status, vacc_status) %>%
+  summarise(
+    nevd_median = median(nevd),
+    nevd_min = min(nevd),
+    nevd_max = max(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+```
+
+
+```{r}
+tmp <- bind_rows(
+  model_a1 %>% mutate(supp = "Baseline"),
+  model_a1__ex_man_all %>% mutate(supp = "Excluding Mangina ETC"),
+) %>%
+  mutate(
+    supp = factor(supp,
+                  c("Baseline", "Excluding Mangina ETC"),
+                  ordered = TRUE)
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, supp)
+```
+
+### Figure
+```{r}
+g_mangina_a <- tmp %>%
+  ggplot(aes(x = ve, col = supp)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Excluding Mangina ETC" = "grey50")) +
+  labs(x = NULL, y = "density",
+       col = "Analysis",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_mangina_b <- summarise_ve(tmp, supp) %>%
+  ggplot(aes(y = supp, x = ve_50, col = supp)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  coord_trans(xlim = c(40, 100)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Excluding Mangina ETC" = "grey50")) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Analysis",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_mangina_a / g_mangina_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+
+

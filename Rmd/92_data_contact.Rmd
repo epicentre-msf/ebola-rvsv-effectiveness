@@ -1,0 +1,170 @@
+---
+title: 'Data quality: EVD contact'
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = FALSE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r}
+library(here)
+library(magrittr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(flextable)
+```
+
+```{r}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+
+source(here("R/load_data.R"))
+source(here("R/wrangle_etc.R"))
+
+conflicted::conflicts_prefer(
+  dplyr::select(),
+  dplyr::filter()
+)
+```
+
+# Load data
+
+```{r, echo = TRUE}
+# Raw ETC
+etc_raw <- readr::read_csv(
+  file = paths$file_data_etc,
+  progress = FALSE
+)
+
+# Clean ETC - add extra contact variables
+contact_vars <- c(
+  "contact_evd_case",
+  "contact_evd_physical",
+  "contact_evd_objects",
+  "contact_evd_house",
+  "contact_funeral",
+  "contact_funeral_body",
+  "contact_travel",
+  "contact_hf",
+  "contact_tradi",
+  "contact_non_human",
+  "ctr_known",
+  "ctr_followed"
+)
+etc_all <- assemble_etc(etc_raw, add_vars = contact_vars)$out %>%
+  filter(is.na(date_onset) | date_onset <= as.Date("2019-11-30"))
+
+# Filter for eligible population
+etc_all_eligible <- filter_eligible(etc_all)
+
+# Format eligible for visualisation
+etc_format <- format_etc_pres(etc_all_eligible$etc_eligible)
+```
+
+
+# Exposure definitions A1 - A4
+
+```{r}
+etc_format %>%
+  select(
+    evd_status,
+    `Contact with EVD case` = contact_evd_case,
+    `Any reported exposure` = contact_any,
+    `Cases in health area` = any_adm3,
+    `Cases in health zone` = any_adm2
+    ) %>%
+  tbl_summary(by = evd_status)
+```
+
+
+# Other contact variables
+
+## Other EVD contact
+
+The more detailed `contact_evd_xxx` variables are rarely reported for EVD-positive or EVD-negative cases.
+
+```{r}
+etc_format %>%
+  select(evd_status,
+         contains("contact_evd")) %>%
+  mutate(across(.cols = contains("contact"), .fns = ~ ifelse(is.na(.x), "Unknown", .x))) %>%
+  mutate(across(.cols = contains("contact"), .fns = ~ factor(.x, c("Yes", "No", "Unknown"), ordered = TRUE))) %>%
+  select(
+    evd_status,
+    `Contact with EVD case` = contact_evd_case,
+    `Contact EVD, physical` = contact_evd_physical,
+    `Contact EVD, objects` = contact_evd_objects,
+    `Contact EVD, house` = contact_evd_house
+    ) %>%
+  tbl_summary(by = evd_status)
+```
+
+## Other exposure
+
+The `contact_xxx` variables are generally more informative, although it is unclear whether these reference EVD exposure, or just recent behaviours. Note that `contact_any` refers to any of: `contact_funeral`, `contact_tradi` and `contact_hf`.
+
+```{r}
+etc_format %>%
+  select(evd_status,
+         (contains("contact") & !contains("contact_evd") & !contains("contact_any"))) %>%
+  mutate(across(.cols = contains("contact"), .fns = ~ ifelse(is.na(.x), "Unknown", .x))) %>%
+  mutate(across(.cols = contains("contact"), .fns = ~ factor(.x, c("Yes", "No", "Unknown"), ordered = TRUE))) %>%
+  tbl_summary(by = evd_status)
+```
+
+# Contact tracing
+
+These were generally only completed by Mangina ETC.
+
+`ctr_known` = `contact_tracing_known_yn`, `ctr_followed` = `contact_tracing_followed_yn`.
+
+```{r}
+etc_format %>%
+  select(evd_status,
+         ctr_known, ctr_followed) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ ifelse(is.na(.x), "Unknown", .x))) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ factor(.x, c("Yes", "No", "Unknown"), ordered = TRUE))) %>%
+  tbl_summary(by = evd_status)
+```
+
+```{r}
+t1 <- etc_format %>%
+  filter(etc == "Mangina (IMC)") %>%
+  select(evd_status,
+         ctr_known, ctr_followed) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ ifelse(is.na(.x), "Unknown", .x))) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ factor(.x, c("Yes", "No", "Unknown"), ordered = TRUE))) %>%
+  tbl_summary(by = evd_status)
+t2 <- etc_format %>%
+  filter(etc != "Mangina (IMC)") %>%
+  select(evd_status,
+         ctr_known, ctr_followed) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ ifelse(is.na(.x), "Unknown", .x))) %>%
+  mutate(across(.cols = contains("ctr"), .fns = ~ factor(.x, c("Yes", "No", "Unknown"), ordered = TRUE))) %>%
+  tbl_summary(by = evd_status)
+
+tbl_merge(
+    list(t1, t2),
+    tab_spanner = c("Mangina (IMC)", "Other")
+  )
+```
+
+

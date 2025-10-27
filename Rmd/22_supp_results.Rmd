@@ -1,0 +1,1056 @@
+---
+title: "Preliminary results"
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = TRUE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r, include = FALSE}
+library(here)
+
+library(magrittr)
+library(dplyr)
+library(tidyr)
+
+library(tibble)
+library(gtsummary)
+library(patchwork)
+library(ggplot2)
+```
+
+```{r, include = FALSE}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+```
+
+```{r, include = FALSE}
+source(here("R/summarise_model.R"))
+```
+
+
+# Load data
+
+```{r}
+etc_10d_imp <- readRDS(file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1.rds"))
+```
+
+
+```{r}
+model_10d_a1 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1.rds"))
+
+# Alternative EVD exposure definitions
+model_10d_a2 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a2.rds"))
+model_10d_a3 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a3.rds"))
+model_10d_a4 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a4.rds"))
+
+# Age
+model_10d_a1__u5 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_u5.rds"))
+model_10d_a1__u15 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_u15.rds"))
+model_10d_a1__o15 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_o15.rds"))
+model_10d_a1__o5 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_o5.rds"))
+
+# Vaccination strategy
+model_10d_a1__v1 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__v1.rds"))
+model_10d_a1__v2 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__v2.rds"))
+
+# High transmission period ()
+model_10d_a1__ht <- readRDS(file = here("outputs", "model_samples", "imp_10d_a1__high.rds"))
+
+# Apply suspected case definition
+model_10d_a1__susp <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__susp.rds"))
+
+# # Misclassification of vaccination status
+# model_10d_a1__p001 <- readRDS(file = here("outputs", "model_samples", "switch_001.rds"))
+# model_10d_a1__p002 <- readRDS(file = here("outputs", "model_samples", "switch_002.rds"))
+# model_10d_a1__p005 <- readRDS(file = here("outputs", "model_samples", "switch_005.rds"))
+# model_10d_a1__p010 <- readRDS(file = here("outputs", "model_samples", "switch_010.rds"))
+# model_10d_a1__p020 <- readRDS(file = here("outputs", "model_samples", "switch_020.rds"))
+# model_10d_a1__n1 <- readRDS(file = here("outputs", "model_samples", "switch_1.rds"))
+# model_10d_a1__n2 <- readRDS(file = here("outputs", "model_samples", "switch_2.rds"))
+# model_10d_a1__n4 <- readRDS(file = here("outputs", "model_samples", "switch_4.rds"))
+
+# Matching criteria
+model_10d_a1__mat <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__alt1.rds"))
+
+# Complete-case
+model_10d_a1__cc <- readRDS(file = here("outputs", "3_model_samples", "_archive2", "raw_10d_a1.rds"))
+
+# Vaccination-onset delay 3-9 days
+model_3d_a1 <- readRDS(file = here("outputs", "3_model_samples", "imp_3d_a1.rds"))
+```
+
+
+# Results
+
+## Alternative EVD exposure definitions
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(evd_exp_def = "Contact with EVD case"),
+  model_10d_a2 %>% mutate(evd_exp_def = "Any EVD exposure"),
+  model_10d_a3 %>% mutate(evd_exp_def = "Any cases in health area"),
+  model_10d_a4 %>% mutate(evd_exp_def = "Any cases in health zone")
+) %>%
+  mutate(
+    evd_exp_def = factor(
+      evd_exp_def,
+      c("Contact with EVD case",
+        "Any EVD exposure",
+        "Any cases in health area",
+        "Any cases in health zone"
+        ),
+      ordered = TRUE
+    ),
+    evd_exp_def_FR = case_when(
+      evd_exp_def == "Contact with EVD case" ~ "Contact avec un cas d'Ebola",
+      evd_exp_def == "Any EVD exposure" ~ "Au moins d'une exposition d'Ebola",
+      evd_exp_def == "Any cases in health area" ~ "Cas signale dans l'aire de sante",
+      evd_exp_def == "Any cases in health zone" ~ "Cas signale dans le zone de sante"
+    ),
+    evd_exp_def_FR = factor(
+      evd_exp_def_FR,
+      c("Contact avec un cas d'Ebola",
+        "Au moins d'une exposition d'Ebola",
+        "Cas signale dans l'aire de sante",
+        "Cas signale dans le zone de sante"),
+      ordered = TRUE
+    )
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, evd_exp_def)
+```
+
+### Figure
+```{r}
+g_exposure_a <- tmp %>%
+  ggplot(aes(x = ve, col = evd_exp_def)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("Contact with EVD case" = "tomato3",
+               "Any EVD exposure" = "grey20",
+               "Any cases in health area" = "grey45",
+               "Any cases in health zone" = "grey70")
+  ) +
+  labs(x = "Vaccine effectiveness (%)", y = "density",
+       col = "Exposure",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+  
+g_exposure_b <- summarise_ve(tmp, evd_exp_def) %>%
+  mutate(pl_col = ifelse(evd_exp_def == "Contact with EVD case", "main", "supp")) %>%
+  ggplot(aes(y = evd_exp_def, x = ve_50, col = evd_exp_def)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+    scale_color_manual(
+    values = c("Contact with EVD case" = "tomato3",
+               "Any EVD exposure" = "grey20",
+               "Any cases in health area" = "grey45",
+               "Any cases in health zone" = "grey70")
+  ) +
+  labs(x = "Vaccine effectiveness (%)", y = "", subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+g_exposure_b_FR <- summarise_ve(tmp, evd_exp_def_FR) %>%
+  mutate(pl_col = ifelse(evd_exp_def_FR == "Contact avec un cas d'Ebola", "main", "supp")) %>%
+  ggplot(aes(y = evd_exp_def_FR, x = ve_50, col = pl_col)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c("main" = "dodgerblue3", "supp" = "grey20")
+  ) +
+  labs(x = "Efficacite (%)", y = "") +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 16),
+    axis.text.y = element_text(size = 16)
+    )
+```
+
+```{r}
+g_exposure_b
+guide_area() / g_exposure_a / g_exposure_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+### Figure (JS)
+
+```{r}
+summarise_ve(tmp, evd_exp_def) %>%
+  mutate(pl_col = ifelse(evd_exp_def == "Contact with EVD case", "main", "supp")) %>%
+  ggplot(aes(y = evd_exp_def, x = ve_50, col = evd_exp_def)) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0.2, lwd = 1) +
+  geom_point(aes(col = evd_exp_def, fill = pl_col), shape = 21, size = 4, stroke = 1.5) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c("Contact with EVD case" = "tomato2",
+               "Any EVD exposure" = "grey50",
+               "Any cases in health area" = "grey50",
+               "Any cases in health zone" = "grey50")
+  ) +
+  scale_fill_manual(
+    values = c(
+      "main" = "tomato2",
+      "supp" = "white"
+    )
+  ) +
+  labs(x = "Vaccine effectiveness (%)", y = NULL) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 20),
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_blank()
+    )
+```
+
+
+
+## Sex
+
+```{r}
+# Load data
+model_10d_a1__female <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__female.rds"))
+model_10d_a1__male <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__male.rds"))
+# Combine
+tmp <- bind_rows(
+  model_10d_a1__female %>% mutate(sex = "Female"),
+  model_10d_a1__male %>% mutate(sex = "Male")
+) %>%
+  mutate(sex = factor(sex, c("Female", "Male"), ordered = TRUE))
+```
+
+### Populations
+```{r}
+etc_10d_imp$sample_df %>%
+  count(.iter, sex, evd_status, vacc_status) %>%
+  complete(.iter, sex, evd_status, vacc_status = c("Unvaccinated", "Vaccinated (10+ days)"), fill = list(n = 0)) %>%
+  group_by(.iter, sex, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*(n / nevd)
+  ) %>%
+  ungroup() %>%
+  filter(vacc_status == "Vaccinated (10+ days)") %>%
+  group_by(sex, evd_status) %>%
+  summarise(
+    n_evd_median = median(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    count_any = sum(n > 0),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, sex)
+```
+
+### Figure
+```{r}
+g_sex_a <- tmp %>%
+  ggplot(aes(x = ve, col = sex)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Female" = "#E6550D", "Male" = "#FDAE6B")) +
+  labs(x = NULL, y = "density",
+       col = "Sex",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_sex_b <- summarise_ve(tmp, sex) %>%
+  ggplot(aes(y = sex, x = ve_50, col = sex)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("Female" = "#E6550D", "Male" = "#FDAE6B")) +
+  coord_trans(xlim = c(0, 100)) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Sex",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+guide_area() / g_sex_a / g_sex_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+
+## Age
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(age = "Reference (baseline)"),
+  model_10d_a1__u5 %>% mutate(age = "< 5 years"),
+  model_10d_a1__u15 %>% mutate(age = "< 15 years"),
+  model_10d_a1__o15 %>% mutate(age = "15+ years")
+) %>%
+  mutate(age = factor(age, c("Reference (baseline)", "< 5 years", "< 15 years", "15+ years"), ordered = TRUE))
+
+tmp %>%
+  filter(grepl("15", age)) %>%
+  summarise(
+    q50 = median(ve)
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, age)
+```
+
+```{r}
+# Vaccinated < 15y
+etc_10d_imp$sample_df %>%
+  # filter age group
+  filter(x_age_gp %in% c("y0_4")) %>%
+  # filter(x_age_gp %in% c("y0_4", "y5_14")) %>%
+  #
+  count(.iter, evd_status, vacc_status) %>%
+  complete(.iter, evd_status, vacc_status = c("Unvaccinated", "Vaccinated (10+ days)"), fill = list(n = 0)) %>%
+  group_by(.iter, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*(n / nevd)
+  ) %>%
+  ungroup() %>%
+  filter(vacc_status == "Vaccinated (10+ days)") %>%
+  group_by(evd_status) %>%
+  summarise(
+    n_evd_median = median(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    count_any = sum(n > 0),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+```
+
+
+### Figure
+```{r}
+g_age_a <- tmp %>%
+  filter(age != "Reference (baseline)") %>%
+  ggplot(aes(x = ve, col = age)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Main" = "tomato3", "< 5 years" = "#BAE4B3", "< 15 years" = "#74C476", "15+ years" = "#238B45")) +
+  labs(x = NULL, y = "density",
+       col = "Age",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_age_b <- summarise_ve(tmp, age) %>%
+  filter(age != "Reference (baseline)") %>%
+  ggplot(aes(y = age, x = ve_50, col = age)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  coord_trans(xlim = c(0, 100)) +
+  scale_color_manual(values = c("Main" = "tomato3", "< 5 years" = "#BAE4B3", "< 15 years" = "#74C476", "15+ years" = "#238B45")) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Age",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_age_a / g_age_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+
+## Vaccination strategy (dosing)
+
+```{r}
+### Vaccination strategy
+imp_a1__v1 <- readRDS(
+  file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1__v1.rds")
+)
+imp_a1__v1$sample_df %>%
+  count(.iter, evd_status, vacc_status) %>%
+  group_by(.iter, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*n/nevd
+  ) %>%
+  group_by(evd_status, vacc_status) %>%
+  summarise(
+    nevd_median = median(nevd),
+    nevd_min = min(nevd),
+    nevd_max = max(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+
+imp_a1__v2 <- readRDS(
+  file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1__v2.rds")
+)
+imp_a1__v2$sample_df %>%
+  count(.iter, evd_status, vacc_status) %>%
+  group_by(.iter, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*n/nevd
+  ) %>%
+  group_by(evd_status, vacc_status) %>%
+  summarise(
+    nevd_median = median(nevd),
+    nevd_min = min(nevd),
+    nevd_max = max(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+```
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(strategy = "Reference (baseline)"),
+  model_10d_a1__v1 %>% mutate(strategy = "Original"),
+  model_10d_a1__v2 %>% mutate(strategy = "Revised")
+) %>%
+  mutate(strategy = factor(strategy, c("Reference (baseline)", "Original", "Revised"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, strategy)
+```
+
+### Figure
+```{r}
+g_strategy_a <- tmp %>%
+  filter(strategy != "Reference (baseline)") %>%
+  ggplot(aes(x = ve, col = strategy)) +
+  geom_line(stat = "density", bounds = c(00, 100), lwd = 1) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Main" = "tomato3", "Original" = "#A6CEE3", "Revised" = "#1F78B4")) +
+  labs(x = NULL, y = "density",
+       col = "Vaccination protocol",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_strategy_b <- summarise_ve(tmp, strategy) %>%
+  filter(strategy != "Reference (baseline)") %>%
+  ggplot(aes(y = strategy, x = ve_50, col = strategy)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("Main" = "tomato3", "Original" = "#A6CEE3", "Revised" = "#1F78B4")) +
+  labs(x = "Estimated vaccine effectiveness (%)", y = "",
+       col = "Vaccination protocol",
+       subtitle = "B") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_strategy_a / g_strategy_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+## High transmission period
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(time = "Main"),
+  model_10d_a1__ht %>% mutate(time = "High-transmission"),
+) %>%
+  mutate(
+    time = factor(
+      time,
+      c("Main", "High-transmission"),
+      ordered = TRUE
+    )
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, time)
+```
+
+### Figure
+```{r}
+g_time_a <- tmp %>%
+  ggplot(aes(x = ve, col = time)) +
+  geom_line(stat = "density", bounds = c(40, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Main" = "tomato3", "High-transmission" = "grey10")) +
+  labs(x = "Vaccine effectiveness (%)", y = "density",
+       col = "EVD exposure",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+  
+g_time_b <- summarise_ve(tmp, time) %>%
+  mutate(pl_col = ifelse(time == "Main", "main", "supp")) %>%
+  ggplot(aes(y = time, x = ve_50, col = pl_col)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c("main" = "tomato3", "supp" = "grey10")
+  ) +
+  labs(x = "Vaccine effectiveness (%)", y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / (g_time_a + g_time_b) + plot_layout(guides = "collect", heights = c(1, 9))
+```
+
+
+## Applying suspected case definition
+
+```{r}
+imp_a1__susp <- readRDS(
+  file = here("outputs", "1_data_mat", "imp_m50_matched_n10_10d_a1__susp.rds")
+)
+
+imp_a1__susp$sample_df %>%
+  count(.iter, evd_status, vacc_status) %>%
+  group_by(.iter, evd_status) %>%
+  mutate(
+    nevd = sum(n),
+    p = 100*n/nevd
+  ) %>%
+  group_by(evd_status, vacc_status) %>%
+  summarise(
+    nevd_median = median(nevd),
+    nevd_min = min(nevd),
+    nevd_max = max(nevd),
+    n_median = median(n),
+    n_min = min(n),
+    n_max = max(n),
+    p_median = median(p),
+    p_min = min(p),
+    p_max = max(p)
+  )
+```
+
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(supp = "Baseline"),
+  model_10d_a1__susp %>% mutate(supp = "Post-hoc case definition"),
+) %>%
+  mutate(
+    supp = factor(
+      supp,
+      c("Baseline", "Post-hoc case definition"),
+      ordered = TRUE
+    )
+  )
+```
+
+### Values
+```{r}
+summarise_ve(tmp, supp)
+```
+
+### Figure
+```{r}
+g_susp_a <- tmp %>%
+  ggplot(aes(x = ve, col = supp)) +
+  geom_line(stat = "density", bounds = c(40, 100), lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(values = c("Baseline" = "tomato3", "Post-hoc case definition" = "grey50")) +
+  labs(x = "Vaccine effectiveness (%)", y = "density",
+       col = "Analysis",
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+  
+g_susp_b <- summarise_ve(tmp, supp) %>%
+  ggplot(aes(y = supp, x = ve_50, col = supp)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3", "Post-hoc case definition" = "grey50")
+  ) +
+  labs(x = "Vaccine effectiveness (%)", y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_susp_a / g_susp_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+## Misclassification of vaccination status
+
+```{r}
+tmp_p <- bind_rows(
+  model_10d_a1 %>% mutate(misclass = 0),
+  model_10d_a1__p001 %>% mutate(misclass = 0.01),
+  model_10d_a1__p002 %>% mutate(misclass = 0.02),
+  model_10d_a1__p005 %>% mutate(misclass = 0.05),
+  model_10d_a1__p010 %>% mutate(misclass = 0.1),
+  model_10d_a1__p020 %>% mutate(misclass = 0.2)
+)
+tmp_n <- bind_rows(
+  model_10d_a1 %>% mutate(misclass = 0),
+  model_10d_a1__n1 %>% mutate(misclass = 1),
+  model_10d_a1__n2 %>% mutate(misclass = 2),
+  model_10d_a1__n4 %>% mutate(misclass = 4)
+)
+```
+
+### Values
+```{r}
+summarise_ve(tmp_p, misclass)
+summarise_ve(tmp_n, misclass)
+```
+
+### Figures
+```{r}
+g_misclass_p <- summarise_ve(tmp_p, misclass) %>%
+  mutate(
+    plt_col = ifelse(misclass == 0, "main", "supp")
+  ) %>%
+  ggplot(aes(x = ve_50, y = 100*misclass, col = plt_col)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 20, 2)) +
+    scale_color_manual(
+    values = c("main" = "tomato3", "supp" = "grey10")
+  ) +
+  labs(subtitle = "A",
+       x = "Vaccine effectiveness (%)",
+       y = "Proportion (%) of misclassification events") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+g_misclass_n <- summarise_ve(tmp_n, misclass) %>%
+  mutate(
+    plt_col = ifelse(misclass == 0, "main", "supp")
+  ) %>%
+  ggplot(aes(x = ve_50, y = misclass, col = plt_col)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 20, 1)) +
+  scale_color_manual(
+    values = c("main" = "tomato3", "supp" = "grey10")
+  ) +
+  labs(subtitle = "B",
+       x = "Vaccine effectiveness (%)",
+       y = "Number of misclassification events") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+g_misclass_p + g_misclass_n
+```
+
+
+## Unmatched
+
+```{r}
+model_10d_a1__unmat <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__unmat.rds"))
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(model = "Baseline"),
+  model_10d_a1__unmat %>% mutate(model = "Unmatched")
+) %>%
+  mutate(model = factor(model, c("Baseline", "Unmatched"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, model)
+```
+
+### Figure
+```{r}
+g_matching_a <- tmp %>%
+  ggplot(aes(x = ve, col = model)) +
+  geom_line(stat = "density", lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.02)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Unmatched" = "grey20")
+  ) +
+  labs(x = "Vaccine effectiveness (%)",
+       y = "density",
+       col = NULL,
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_matching_b <- summarise_ve(tmp, model) %>%
+  ggplot(aes(y = model, x = ve_50, col = model)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 0.5) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Unmatched" = "grey20")
+  ) +
+  labs(subtitle = "B",
+       x = "Vaccine effectiveness (%)",
+       y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_matching_a / g_matching_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+## Alt. matching criteria
+
+```{r}
+model_10d_a1__sexage <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__altsexage_100.rds"))
+model_10d_a1__mat <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__alt1.rds"))
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(model = "Baseline"),
+  model_10d_a1__mat %>% mutate(model = "Sex + age + region + month onset"),
+  model_10d_a1__sexage %>% mutate(model = "Sex + age")
+) %>%
+  mutate(model = factor(model, c("Baseline", "Sex + age + region + month onset", "Sex + age"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, model)
+```
+
+### Figure
+```{r}
+g_matching_a <- tmp %>%
+  ggplot(aes(x = ve, col = model)) +
+  geom_line(stat = "density", lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.02)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Sex + age + region + month onset" = "grey20",
+               "Sex + age" = "grey50")
+  ) +
+  labs(x = "Vaccine effectiveness (%)",
+       y = "density",
+       col = NULL,
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_matching_b <- summarise_ve(tmp, model) %>%
+  ggplot(aes(y = model, x = ve_50, col = model)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 0.5) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Sex + age + region + month onset" = "grey20",
+               "Sex + age" = "grey50")
+  ) +
+  labs(subtitle = "B",
+       x = "Vaccine effectiveness (%)",
+       y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_matching_a / g_matching_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+## Severity (advanced symptoms)
+
+```{r}
+model_10d_a1__adv <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__adv.rds"))
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(model = "Baseline"),
+  model_10d_a1__adv %>% mutate(model = "Advanced/severe symptoms")
+) %>%
+  mutate(model = factor(model, c("Baseline", "Advanced/severe symptoms"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, model)
+```
+
+### Figure
+```{r}
+g_matching_a <- tmp %>%
+  ggplot(aes(x = ve, col = model)) +
+  geom_line(stat = "density", lwd = 1) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.02)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Advanced/severe symptoms" = "grey20")
+  ) +
+  labs(x = "Vaccine effectiveness (%)",
+       y = "density",
+       col = NULL,
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_matching_b <- summarise_ve(tmp, model) %>%
+  ggplot(aes(y = model, x = ve_50, col = model)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 0.5) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Advanced/severe symptoms" = "grey20")
+  ) +
+  labs(subtitle = "B",
+       x = "Vaccine effectiveness (%)",
+       y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_matching_a / g_matching_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+## Complete-case analysis
+
+```{r}
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(model = "Baseline"),
+  model_10d_a1__cc %>% mutate(model = "Complete-case analysis")
+) %>%
+  mutate(model = factor(model, c("Baseline", "Complete-case analysis"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, model)
+```
+
+
+### Figure
+```{r}
+g_cc_a <- tmp %>%
+  ggplot(aes(x = ve, col = model)) +
+  geom_line(stat = "density", lwd = 1) +
+  scale_x_continuous(limits = c(20, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.02)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Complete-case analysis" = "grey20")
+  ) +
+  labs(x = "Vaccine effectiveness (%)",
+       y = "density",
+       col = NULL,
+       subtitle = "A") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+g_cc_b <- summarise_ve(tmp, model) %>%
+  ggplot(aes(y = model, x = ve_50, col = model)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 0.5) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(20, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("Baseline" = "tomato3",
+               "Complete-case analysis" = "grey20")
+  ) +
+  labs(subtitle = "B",
+       x = "Vaccine effectiveness (%)",
+       y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / g_cc_a / g_cc_b + plot_layout(guides = "collect", heights = c(1, 8, 2))
+```
+
+
+
+## Prior distribution
+
+```{r}
+# Prior distribution
+model_10d_a1__n01 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__prior_n01.rds"))
+model_10d_a1__nm21 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__prior_nm21.rds"))
+tmp <- bind_rows(
+  model_10d_a1 %>% mutate(prior = "N(-1, 0.49)"),
+  model_10d_a1__n01 %>% mutate(prior = "N(0, 1)"),
+  model_10d_a1__nm21 %>% mutate(prior = "N(-2, 1)")
+) %>%
+  mutate(prior = factor(prior, c("N(-1, 0.49)", "N(0, 1)", "N(-2, 1)"), ordered = TRUE))
+```
+
+### Values
+```{r}
+summarise_ve(tmp, prior)
+```
+
+### Figure
+```{r}
+tb_prior <- tibble::tibble(
+  `N(-1, 0.49)` = rnorm(n = 1e6, mean = -1, sd = 0.7),
+  `N(0, 1)` = rnorm(n = 1e6, mean = 0, sd = 1),
+  `N(-2, 1)` = rnorm(n = 1e6, mean = -2, sd = 1)
+) |> 
+  pivot_longer(cols = everything(), names_to = "prior", values_to = "value") |> 
+  mutate(
+    prior_ve = 100*(1 - exp(value))
+  )
+g_prior_a <- tb_prior %>%
+  ggplot(aes(x = prior_ve, col = prior)) +
+  geom_line(stat = "density", bounds = c(0, 100), lwd = 0.8) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(-20, 100, 20)) +
+  scale_y_continuous(limits = c(0, 0.09), breaks = seq(0, 0.09, 0.02)) +
+  scale_color_manual(
+    values = c("N(-1, 0.49)" = "tomato3",
+               "N(0, 1)" = "#B2DF8A",
+               "N(-2, 1)" = "#33A02C")
+  ) +
+  labs(x = "Prior vaccine effectiveness (%)",
+       subtitle = "A",
+       col = "Prior (\u03C6)") +
+  theme_bw()  +
+  theme(legend.position = "top")
+
+# Posterior distribution
+g_prior_b <- tmp %>%
+  ggplot(aes(x = ve, col = prior)) +
+  geom_density(bounds = c(0, 100), lwd = 0.8) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(limits = c(0, 0.09), breaks = seq(0, 0.09, 0.02)) +
+  scale_color_manual(
+    values = c("N(-1, 0.49)" = "tomato3",
+               "N(0, 1)" = "#B2DF8A",
+               "N(-2, 1)" = "#33A02C")
+  ) +
+  labs(x = "Posterior vaccine effectiveness (%)",
+       subtitle = "B",
+       col = "bV prior") +
+  theme_bw()  +
+  theme(legend.position = "none")
+
+# Posterior estimate (median, 50% and 95% CrIs)
+g_prior_c <- summarise_ve(tmp, prior) %>%
+  ggplot(aes(y = prior, x = ve_50, col = prior)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0, lwd = 1) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 2) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  scale_color_manual(
+    values = c("N(-1, 0.49)" = "tomato3",
+               "N(0, 1)" = "#B2DF8A",
+               "N(-2, 1)" = "#33A02C")
+  ) +
+  labs(x = "Posterior vaccine effectiveness (%)",
+       subtitle = "C",
+       y = "bV prior") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+guide_area() / ( (g_prior_a / g_prior_b) | g_prior_c ) + plot_layout(guides = "collect", heights = c(1, 10))
+```
+
+
+## Vaccination-onset delay 3-9 days
+
+### Values
+```{r}
+summarise_ve(model_3d_a1)
+```
+
+### Figure
+```{r}
+model_3d_a1 %>%
+  ggplot(aes(x = ve)) +
+  geom_vline(xintercept = 0, lty = 2, lwd = 0.6, col = "lightgrey") +
+  # geom_line(aes(group = iter), stat = "density", col = "grey50", alpha = 0.1) +
+  geom_density(col = "grey10", bounds = c(-50, 100), lwd = 1) +
+  geom_point(data = summarise_ve(model_3d_a1), aes(x = ve_50, y = 0), size = 3, col = "grey10") +
+  geom_errorbar(data = summarise_ve(model_3d_a1), aes(x = ve_50, xmin = ve_025, xmax = ve_975, y = 0),
+                width = 0, lwd = 1, col = "grey10") +
+  geom_errorbar(data = summarise_ve(model_3d_a1), aes(x = ve_50, xmin = ve_25, xmax = ve_75, y = 0),
+                width = 0, lwd = 2, col = "grey10") +
+  scale_x_continuous(limits = c(-50, 100), breaks = seq(-100, 100, 50)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.005)) +
+  labs(x = "Vaccine effectiveness (%), 3-9 days before symptom onset", y = "density",
+       subtitle = "A") +
+  theme_bw()
+```
+
+

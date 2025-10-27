@@ -1,0 +1,315 @@
+---
+title: "Preliminary results"
+author: "Sophie Meakin"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE, cache = FALSE, echo = TRUE,
+  tidy = TRUE,
+  warning = FALSE, message = FALSE, error = FALSE,
+  fig.show = 'hold',
+  fig.width = 12,
+  fig.height = 9, 
+  dpi = 300,
+  dev = 'png'
+)
+```
+
+```{r, include = FALSE}
+library(here)
+
+library(magrittr)
+library(dplyr)
+library(tidyr)
+
+library(tibble)
+library(gtsummary)
+library(patchwork)
+library(ggplot2)
+
+```
+
+```{r, include = FALSE}
+source(here("R/set_paths.R"))
+paths <- set_paths()
+
+source(here("R", "summarise_model.R"))
+```
+
+# Load data
+
+```{r}
+model_10d_a1 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1.rds"))
+
+model_10d_a1__m <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__male.rds"))
+model_10d_a1__f <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__female.rds"))
+
+model_10d_a1__u5 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_u5.rds"))
+model_10d_a1__u15 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_u15.rds"))
+model_10d_a1__o15 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__age_o15.rds"))
+
+model_10d_a1__v1 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__v1.rds"))
+model_10d_a1__v2 <- readRDS(file = here("outputs", "3_model_samples", "imp_10d_a1__v2.rds"))
+
+model_3d_a1 <- readRDS(file = here("outputs", "3_model_samples", "imp_3d_a1.rds"))
+```
+
+# Results
+
+## Values
+
+### Vaccine effectiveness (VE)
+```{r}
+summarise_ve(model_10d_a1)
+```
+
+### Variation in median VE
+```{r}
+summarise_ve(model_10d_a1, iter) %>%
+  with(summary(ve_50))
+```
+
+
+## Figures
+
+### Posterior VE (main)
+```{r}
+tb_main <- bind_rows(
+  summarise_ve(model_10d_a1) %>% mutate(analysis = "Baseline", sub_analysis = "Vaccination-onset delay:\n10+ days"),
+  #
+  summarise_ve(model_10d_a1__m) %>% mutate(analysis = "Sex", sub_analysis = "Male"),
+  summarise_ve(model_10d_a1__f) %>% mutate(analysis = "Sex", sub_analysis = "Female"),
+  #
+  # summarise_ve(model_10d_a1__u5) %>% mutate(analysis = "Age", sub_analysis = "Under 5 years"),
+  summarise_ve(model_10d_a1__u15) %>% mutate(analysis = "Age", sub_analysis = "Under 15 years"),
+  summarise_ve(model_10d_a1__o15) %>% mutate(analysis = "Age", sub_analysis = "Adults"),
+  #
+  summarise_ve(model_10d_a1__v1) %>% mutate(analysis = "Vaccination\nprotocol", sub_analysis = "Original protocol"),
+  summarise_ve(model_10d_a1__v2) %>% mutate(analysis = "Vaccination\nprotocol", sub_analysis = "Revised protocol"),
+  #
+  summarise_ve(model_3d_a1) %>% mutate(analysis = "Delay", sub_analysis = "Vaccination-onset delay:\n3 - 9 days"),
+) %>%
+  select(analysis, sub_analysis, everything()) %>%
+  mutate(
+    analysis_facet = ifelse(analysis == "Baseline", "", analysis),
+    analysis_facet = factor(
+      analysis_facet, c("", "Sex", "Age", "Vaccination\nprotocol", "Delay")
+    ),
+    sub_analysis = factor(
+      sub_analysis,
+      c("Vaccination-onset delay:\n10+ days", "Female", "Male", "Original protocol", "Revised protocol", "Under 5 years", "Under 15 years", "Adults", "Vaccination-onset delay:\n3 - 9 days")
+    )
+  )
+
+tb_main %>%
+  ggplot(aes(y = sub_analysis, x = ve_50, col = analysis)) +
+  # geom_vline(xintercept = summarise_ve(model_10d_a1)$ve_50, col = "tomato3", lty = 2, lwd = 0.6) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0.2, lwd = 0.8) +
+  geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 1.6) +
+  geom_point(aes(shape = analysis, fill = analysis), size = 4, stroke = 1) +
+  facet_grid(analysis_facet ~ ., scales = "free", space = "free") +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c(
+      "Baseline" = "tomato2",
+      "Sex" = RColorBrewer::brewer.pal(n = 8, name = "Set2")[6],
+      "Vaccination\nprotocol" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[2],
+      "Age" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[3],
+      "Delay" = RColorBrewer::brewer.pal(n = 9, name = "Set1")[9]
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Baseline" = "tomato2",
+      # "Sex" = RColorBrewer::brewer.pal(n = 8, name = "Set2")[6],
+      # "Vaccination\nprotocol" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[2],
+      # "Age" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[3],
+      "Sex" = "white", "Age" = "white", "Vaccination\nprotocol" = "white",
+      "Delay" = RColorBrewer::brewer.pal(n = 9, name = "Set1")[9]
+    )
+  ) +
+  scale_shape_manual(
+    values = c(
+      "Baseline" = 21,
+      "Sex" = 25,
+      "Vaccination\nprotocol" = 22,
+      "Age" = 23,
+      "Delay" = 24
+    )
+  ) +
+  coord_trans(xlim = c(0, 100)) +
+  labs(x = "Vaccine effectiveness (%)", y = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 20),
+    strip.text = element_text(face = "bold")
+    )
+
+ggsave(
+  filename = "figure3.pdf",
+  width = 30, height = 18, units = "cm",
+  dpi = 400
+)
+```
+
+```{r}
+# JS
+tb_main %>%
+  ggplot(aes(y = sub_analysis, x = ve_50, col = analysis)) +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), width = 0.2, lwd = 1) +
+  # geom_errorbar(aes(xmin = ve_25, xmax = ve_75), width = 0, lwd = 1.6) +
+  geom_point(aes(shape = analysis, fill = analysis), size = 5, stroke = 1.5) +
+  # facet_grid(analysis_facet ~ ., scales = "free", space = "free") +
+  scale_x_continuous(breaks = seq(0, 100, 20)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(
+    values = c(
+      "Baseline" = "tomato2",
+      "Sex" = RColorBrewer::brewer.pal(n = 8, name = "Set2")[6],
+      "Vaccination\nprotocol" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[2],
+      "Age" = RColorBrewer::brewer.pal(n = 8, name = "Set1")[3],
+      "Vaccination\ndelay" = RColorBrewer::brewer.pal(n = 9, name = "Set1")[9]
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Baseline" = "tomato2",
+      "Sex" = "white",
+      "Vaccination\nprotocol" = "white",
+      "Age" = "white",
+      "Vaccination\ndelay" = "white"
+    )
+  ) +
+  scale_shape_manual(
+    values = c(
+      "Baseline" = 21,
+      "Sex" = 25,
+      "Vaccination\nprotocol" = 22,
+      "Age" = 23,
+      "Delay" = 24
+    )
+  ) +
+  coord_trans(xlim = c(0, 100)) +
+  labs(x = "Vaccine effectiveness (%)", y = NULL) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 20),
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_blank()
+    )
+```
+
+
+
+### Posterior VE (details)
+```{r}
+# Posterior distribution
+g_ve_a <- model_10d_a1 %>%
+  ggplot(aes(x = ve)) +
+  geom_line(aes(group = iter), stat = "density", col = "grey60", alpha = 0.05) +
+  geom_density(col = "tomato3", lwd = 1) +
+  # geom_point(data = summarise_ve(model_10d_a1), aes(x = ve_50, y = 0), size = 3, col = "tomato3") +
+  # geom_errorbar(
+  #   data = summarise_ve(model_10d_a1), aes(x = ve_50, xmin = ve_025, xmax = ve_975, y = 0),
+  #   width = 0, lwd = 1, col = "tomato3"
+  # ) +
+  # geom_errorbar(
+  #   data = summarise_ve(model_10d_a1), aes(x = ve_50, xmin = ve_25, xmax = ve_75, y = 0),
+  #   width = 0, lwd = 2, col = "tomato3"
+  # ) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  scale_y_continuous(breaks = seq(0, 0.2, 0.04)) +
+  labs(x = "Vaccine effectiveness (%)", y = "density",
+       subtitle = "A") +
+  theme_bw()
+
+# Posterior estimates by imputed-matched sample
+g_ve_b <- summarise_ve(model_10d_a1, iter) %>%
+  filter(iter %in% sample(1:500, size = 80)) %>%
+  ggplot(aes(y = iter, x = ve_50)) +
+  geom_point(size = 1, col = "grey50") +
+  geom_errorbar(aes(xmin = ve_025, xmax = ve_975), col = "grey50", width = 0, lwd = 0.6) +
+  scale_x_continuous(limits = c(40, 100), breaks = seq(0, 100, 20)) +
+  labs(x = "Vaccine effectiveness (%)", y = "Imputed-matched population sample", col = "",
+       subtitle = "B") +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_blank()
+  )
+```
+
+```{r}
+g_ve_a / g_ve_b + plot_layout(heights = c(1, 3))
+```
+
+### Other posterior estimates
+```{r}
+tb_post_10d_a1__otherparams <- model_10d_a1 %>%
+  select(-c(iter, .chain, .draw, .iteration, lp__, lprior)) %>%
+  pivot_longer(cols = everything()) %>%
+  group_by(name) %>%
+  summarise(
+    q50 = median(value, na.rm = TRUE),
+    q025 = quantile(value, 0.025, na.rm = TRUE),
+    q25 = quantile(value, 0.25, na.rm = TRUE),
+    q75 = quantile(value, 0.75, na.rm = TRUE),
+    q975 = quantile(value, 0.975, na.rm = TRUE)
+    ) %>%
+  mutate(
+    label = stringr::str_remove(name, "b_"),
+    label = stringr::str_remove(label, "x_"),
+    label = stringr::str_remove(label, "sex"),
+    label = stringr::str_remove(label, "age_gp"),
+    label = stringr::str_remove(label, "strata")
+    ) %>%
+  mutate(
+    param = case_when(
+      grepl("Intercept", name) ~ "Intercept",
+      grepl("sex", name) ~ "Sex",
+      grepl("age_gp", name) ~ "Age group",
+      grepl("strata", name) ~ "Place-time strata",
+      grepl("vacc_status", name) ~ "Vaccination status"
+      ),
+    param = factor(
+      param,
+      c("Intercept", "Sex", "Age group", "Place-time strata", "Vaccination status"),
+      ordered = TRUE
+      )
+    ) %>%
+  filter(!grepl("prior", name))
+```
+
+```{r}
+tb_post_10d_a1__otherparams %>%
+  filter(
+    !grepl("vacc_status", name),
+    name != "ve"
+  ) %>%
+  ggplot(aes(y = name, x = q50, col = param)) +
+  geom_point() +
+  geom_errorbar(aes(xmin = q025, xmax = q975), width = 0, lwd = 0.6) +
+  scale_y_discrete(limits = rev) +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = "Parameter posterior value", y = "") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+
+
+
+
+
